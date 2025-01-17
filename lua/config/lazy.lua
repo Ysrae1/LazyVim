@@ -12,12 +12,25 @@ if not (vim.uv or vim.loop).fs_stat(lazypath) then
     os.exit(1)
   end
 end
+
+---@diagnostic disable-next-line: undefined-field
 vim.opt.rtp:prepend(lazypath)
 
 require("lazy").setup({
+
   spec = {
+
     -- add LazyVim and import its plugins
-    { "LazyVim/LazyVim", import = "lazyvim.plugins" },
+    {
+
+      "LazyVim/LazyVim",
+
+      opts = {
+        colorscheme = "nvchad",
+      },
+      import = "lazyvim.plugins",
+    },
+
     -- import/override with your plugins
     { import = "plugins" },
   },
@@ -30,17 +43,25 @@ require("lazy").setup({
     version = false, -- always use the latest git commit
     -- version = "*", -- try installing the latest stable version for plugins that support semver
   },
-  install = { colorscheme = { "tokyonight", "habamax" } },
+
+  ui = {
+    icons = {
+      ft = "",
+      lazy = "󰂠 ",
+      loaded = "",
+      not_loaded = "",
+    },
+  },
+
   checker = {
-    enabled = true, -- check for plugin updates periodically
-    notify = false, -- notify on update
+    enabled = true, -- check for plugin updates periodically notify = false, -- notify on update
   }, -- automatically check for plugin updates
   performance = {
     rtp = {
       -- disable some rtp plugins
       disabled_plugins = {
         "gzip",
-        -- "matchit",
+        "tokyonight",
         -- "matchparen",
         -- "netrwPlugin",
         "tarPlugin",
@@ -51,3 +72,6 @@ require("lazy").setup({
     },
   },
 })
+
+vim.cmd("colorscheme nvchad")
+require("base46").load_all_highlights()

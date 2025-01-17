@@ -1,0 +1,25 @@
+return {
+  { "Ysrae1/onehalf-lush-c", event = "VimEnter", priority = 1000 },
+
+  {
+    "LazyVim/LazyVim",
+
+    opts = {
+      colorscheme = function()
+        -- 这里执行系统检测：
+        local handle = io.popen("defaults read -g AppleInterfaceStyle 2>/dev/null")
+        local result = handle:read("*a")
+        handle:close()
+            require('onehalf-lush')
+
+        if result:match("Dark") then
+          vim.cmd("colorscheme onehalf-lush-dark")
+          vim.g.colors_name = "onehalf-lush-yyb-dark"
+        else
+          vim.cmd("colorscheme onehalf-lush")
+          vim.g.colors_name = "onehalf-lush-yyb-light"
+        end
+      end,
+    },
+  },
+}
