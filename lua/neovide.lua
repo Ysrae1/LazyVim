@@ -23,7 +23,7 @@ if vim.g.neovide then
 
   vim.g.neovide_floating_corner_radius = 0.48
 
-  vim.g.neovide_transparency = 0.95
+  vim.g.neovide_opacity = 0.95
   vim.g.neovide_normal_opacity = 0.9
 
   vim.g.neovide_refresh_rate = 120
@@ -37,14 +37,15 @@ if vim.g.neovide then
 
   vim.g.neovide_profiler = false
   vim.g.neovide_cursor_smooth_blink = true
-  vim.g.neovide_cursor_animation_length = 0.05
+  vim.g.neovide_cursor_animation_length = 0.15
+  vim.g.neovide_cursor_short_animation_length = 0.04
 
   vim.g.neovide_cursor_trail_size = 0.6
 
   vim.g.neovide_cursor_vfx_mode = "railgun"
   vim.g.neovide_cursor_vfx_opacity = 200.0
-  vim.g.neovide_cursor_vfx_particle_lifetime = 1.2
-  vim.g.neovide_cursor_vfx_particle_density = 7.0
+  vim.g.neovide_cursor_vfx_particle_lifetime = 1.0
+  vim.g.neovide_cursor_vfx_particle_density = 6.0
   vim.g.neovide_cursor_vfx_particle_speed = 15.0
   vim.g.neovide_cursor_vfx_particle_phase = 1.5
   vim.g.neovide_cursor_vfx_particle_curl = 1.0

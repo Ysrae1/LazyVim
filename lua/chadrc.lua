@@ -18,7 +18,7 @@ M.base46 = {
   -- },
 }
 
-M.nvdash = { load_on_startup = true }
+M.nvdash = { load_on_startup = false }
 M.ui = {
   cmp = {
     enabled = false,

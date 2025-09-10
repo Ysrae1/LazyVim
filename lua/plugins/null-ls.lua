@@ -1,8 +1,8 @@
--- change null-ls config
+-- ~/.config/nvim/lua/plugins/null-ls.lua
 return {
   {
-    "jose-elias-alvarez/null-ls.nvim",
-    dependencies = { "mason.nvim" },
+    "nvimtools/none-ls.nvim",
+    dependencies = { "williamboman/mason.nvim", "gbprod/none-ls-shellcheck.nvim" },
     event = { "BufReadPre", "BufNewFile" },
     opts = function()
       local mason_registry = require("mason-registry")
@@ -11,20 +11,17 @@ return {
       local diagnostics = null_ls.builtins.diagnostics
       local code_actions = null_ls.builtins.code_actions
 
-      null_ls.setup({
-        -- debug = true, -- Turn on debug for :NullLsLog
+      return {
         debug = false,
-        -- diagnostics_format = "#{m} #{s}[#{c}]",
         sources = {
-          -- list of supported sources:
-          -- https://github.com/jose-elias-alvarez/null-ls.nvim/blob/main/doc/BUILTINS.md
-
-          -- get from $PATH
-          diagnostics.ruff,
+          -- 诊断
           diagnostics.mypy,
-          formatting.black,
+          diagnostics.yamllint.with({
+            command = mason_registry.get_package("yamllint").path,
+          }),
 
-          -- get from mason
+          -- 格式化
+          formatting.black,
           formatting.stylua.with({
             command = mason_registry.get_package("stylua").path,
             extra_args = { "--indent-type", "Spaces", "--indent-width", "2" },
@@ -35,22 +32,12 @@ return {
           formatting.prettierd.with({
             command = mason_registry.get_package("prettierd").path,
           }),
-          formatting.rustfmt.with({
-            command = mason_registry.get_package("rustfmt").path,
-          }),
-          formatting.yamlfix.with({
-            command = mason_registry.get_package("yamlfix").path, -- requires python
-          }),
 
-          diagnostics.yamllint.with({
-            command = mason_registry.get_package("yamllint").path,
-          }),
-
-          code_actions.shellcheck.with({
-            command = mason_registry.get_package("shellcheck").path,
-          }),
+          -- shellcheck via external source (diagnostics + code actions)
+          require("none-ls-shellcheck.diagnostics"),
+          require("none-ls-shellcheck.code_actions"),
         },
-      })
+      }
     end,
   },
 }

@@ -32,6 +32,7 @@ require("lazy").setup({
     },
 
     -- import/override with your plugins
+    { import = "lazyvim.plugins.extras.lsp.none-ls" },
     { import = "plugins" },
   },
   defaults = {
