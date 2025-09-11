@@ -50,8 +50,13 @@ map("n", "<leader>\\", ":Neotree reveal<cr>", { noremap = true, silent = true })
 
 -- del("n", "<leader>D")
 
--- Back to dashboard
-map("n", "<leader>D", "<cmd>lua Snacks.dashboard.open()<CR>", { desc = "Open Snacks' dashboard." })
+map("n", "<leader>D", function()
+  Snacks.dashboard.open()
+  vim.schedule(function()
+    vim.cmd("stopinsert")
+  end)
+end, { desc = "Open Snacks' dashboard" })
+
 
 -- telescope
 

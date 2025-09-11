@@ -23,7 +23,7 @@ For the complete instructions, please refer to the original [LazyVim](https://gi
 
 ## Other Dependencies
 
-Apart from the packages maintained by LazyVim, the [unimatrix](https://github.com/will8211/unimatrix) is needed for the startup visual of [neovide](https://neovide.dev) and the [snacks](https://github.com/folke/snacks.nvim) dashboard. The base46 version should be chosen from my repository due to the dependencied of the binary color theme files for *neo-tree*.
+Apart from the packages maintained by LazyVim, the [unimatrix](https://github.com/will8211/unimatrix) is needed for the startup visual of [neovide](https://neovide.dev) and the [snacks](https://github.com/folke/snacks.nvim) dashboard. The base46 version should be chosen from my repository due to the dependencied of the binary color theme files for _neo-tree_.
 
 ## Neovide Users
 

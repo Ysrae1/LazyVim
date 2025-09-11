@@ -42,7 +42,7 @@ M.ui = {
   -- lazyload it when there are 1+ buffers
   tabufline = {
     enabled = true,
-    lazyload = true,
+    lazyload = false,
     order = { "ntreeOffset", "buffers", "tabs", "githubprofile", "btns" },
     modules = {
 
