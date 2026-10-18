@@ -104,4 +104,6 @@ local group = vim.api.nvim_create_augroup("UserNeovideScale", { clear = true })
 vim.api.nvim_create_autocmd("SessionLoadPost", { group = group, callback = M.load_scale_factor })
 vim.api.nvim_create_autocmd("VimLeavePre", { group = group, callback = M.save_scale_factor })
 
+require("config.media.image").setup()
+
 return M
