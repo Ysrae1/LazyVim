@@ -6,6 +6,8 @@ end
 
 vim.o.guifont = "FiraCode Nerd Font Mono:h16"
 vim.opt.linespace = 0
+-- Show the command line on demand instead of reserving an empty footer row.
+vim.o.cmdheight = 0
 vim.g.neovide_text_gamma = 0.0
 vim.g.neovide_text_contrast = 0.5
 

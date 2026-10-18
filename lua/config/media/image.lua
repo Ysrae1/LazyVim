@@ -2,6 +2,7 @@
 -- neovide-image branch predates it and requires an unmerged vim.img API.
 -- Like that branch, image transport goes over RPC; decoding belongs to the GUI.
 local M = {}
+local capsule = require("config.media.capsule")
 local views, active = {}, {}
 local next_id, pending, configured = 0, false, false
 local formats = { png = true, jpg = true, jpeg = true, gif = true, webp = true, bmp = true, tif = true, tiff = true, ico = true }
@@ -43,13 +44,42 @@ local function message(view, lines)
   vim.bo[view.buf].modified = false
 end
 
+-- No filename here: the existing buffer/status line already identifies it.
+function M.render_title(view, width)
+  local zoom = ("×%.2g"):format(view.zoom or 1)
+  local state = view.error and "ERROR" or view.width and zoom or "…"
+  local detailed = view.width and not view.error and (state .. (" · %d×%d"):format(view.width, view.height)) or state
+  local function layout(compact, dimensions, pan, zoom_keys, status)
+    local left, left_width = "", 0
+    if status then left, left_width = capsule.format("GlowMediaInfo", compact and "V" or "VIEW", dimensions and detailed or state) end
+    local right, right_width = {}, 0
+    local function add(group, label, value)
+      local text, size = capsule.format("GlowMedia" .. group, label, value)
+      right[#right + 1], right_width = text, right_width + size + (#right > 0 and 1 or 0)
+    end
+    if zoom_keys then add("Action", compact and "Z" or "ZOOM", "+ − · 0") end
+    if pan then add("Action", compact and "P" or "PAN", "hjkl") end
+    if view.error then add("Menu", compact and "R" or "RETRY", "r") end
+    add("Menu", compact and "Q" or "CLOSE", "q")
+    return "%#GlowMediaBar# " .. left .. "%=" .. table.concat(right, " ") .. " ",
+      left_width + right_width + (status and 3 or 2)
+  end
+  for _, variant in ipairs({
+    { false, true, true, true, true }, { false, false, true, true, true },
+    { true, false, true, true, true }, { true, false, false, true, true },
+    { true, false, false, false, true }, { true, false, false, false, false },
+  }) do
+    local result, size = layout(unpack(variant))
+    if size <= width then return result end
+  end
+  return "%#GlowMediaMenuValue#q"
+end
+
 local function title(view)
   if not vim.api.nvim_win_is_valid(view.win) then
     return
   end
-  local name = vim.fs.basename(view.path):gsub("%%", "%%%%")
-  local status = view.error and "加载失败" or (view.width and ("适应 ×%.2g"):format(view.zoom) or "正在加载…")
-  vim.wo[view.win].winbar = " " .. name .. "  ·  " .. status .. "%=%< +/− 缩放  0 适应  hjkl 平移  q 关闭 "
+  vim.wo[view.win].winbar = M.render_title(view, vim.api.nvim_win_get_width(view.win))
 end
 
 local function show(view)
@@ -318,7 +348,14 @@ function M.setup()
     return
   end
   configured = true
+  capsule.refresh_colors()
   local group = vim.api.nvim_create_augroup("GlowNativeImage", { clear = true })
+  local function refresh_theme()
+    capsule.refresh_colors()
+    schedule()
+  end
+  vim.api.nvim_create_autocmd("ColorScheme", { group = group, callback = refresh_theme })
+  vim.api.nvim_create_autocmd("User", { group = group, pattern = "NvThemeReload", callback = refresh_theme })
   vim.api.nvim_create_autocmd({ "BufWinEnter", "BufWinLeave", "WinEnter", "WinClosed", "WinResized", "VimResized", "WinScrolled", "TabEnter" }, {
     group = group,
     callback = schedule,

@@ -124,6 +124,52 @@ local function parsed(text)
   return result
 end
 
+local function edit_options(buf, leaving)
+  local state = states[buf]
+  if not state or not api.nvim_buf_is_valid(buf) then return end
+  local active = false
+  if not leaving and api.nvim_get_current_buf() == buf and vim.fn.mode(true):match('^[iR]') then
+    local row = api.nvim_win_get_cursor(0)[1]
+    for _, cell in ipairs(require('config.media.notebook_edit').cells(buf)) do
+      if cell.kind == 'markdown' and row > cell.header and row <= cell.finish then active = true; break end
+    end
+  end
+  if active and not state.edit_options then
+    local options = vim.bo[buf]
+    state.edit_options = { comments = options.comments, formatoptions = options.formatoptions }
+    options.comments = 'b:#'
+    if not options.formatoptions:find('r', 1, true) then options.formatoptions = options.formatoptions .. 'r' end
+  elseif not active and state.edit_options then
+    vim.bo[buf].comments = state.edit_options.comments
+    vim.bo[buf].formatoptions = state.edit_options.formatoptions
+    state.edit_options = nil
+  end
+end
+
+local function delete_key(buf, key)
+  if api.nvim_get_current_buf() ~= buf or not vim.b[buf].glow_notebook_edit
+    or not vim.fn.mode(true):match('^i') then return key end
+  local cursor = api.nvim_win_get_cursor(0)
+  local row, col = cursor[1], cursor[2]
+  for _, cell in ipairs(require('config.media.notebook_edit').cells(buf)) do
+    if cell.kind == 'markdown' and row > cell.header and row <= cell.finish then
+      local line = api.nvim_buf_get_lines(buf, row - 1, row, false)[1] or ''
+      if key == '<BS>' then
+        local prefix = #(line:match('^# ?') or '')
+        if col > prefix then return key end
+        if row == cell.header + 1 then return '<Ignore>' end
+        return string.rep('<Right>', prefix - col) .. string.rep('<BS>', prefix + 1)
+      elseif col >= #line then
+        if row == cell.finish then return '<Ignore>' end
+        local next_line = api.nvim_buf_get_lines(buf, row, row + 1, false)[1] or ''
+        return string.rep('<Del>', #(next_line:match('^# ?') or '') + 1)
+      end
+      return key
+    end
+  end
+  return key
+end
+
 function M.parse(ctx)
   local state = states[ctx.buf]
   if not state or not vim.b[ctx.buf].glow_notebook_edit then return {} end
@@ -149,10 +195,12 @@ function M.parse(ctx)
         if #line > 0 then mark(row - 1, 0, { end_col = #line, hl_group = 'GlowNotebookMDText', priority = 210 }) end
       end
       local active = editing and current >= start and current <= cell.finish
+      -- Jupytext's storage wrapper stays hidden even while editing. Markdown's
+      -- own heading/emphasis/link syntax is exposed by the active-cell branch.
+      for index, offset in ipairs(offsets) do
+        if offset > 0 then mark(cell.header + index - 1, 0, { end_col = offset, conceal = '' }) end
+      end
       if not active then
-        for index, offset in ipairs(offsets) do
-          if offset > 0 then mark(cell.header + index - 1, 0, { end_col = offset, conceal = '' }) end
-        end
         local text = table.concat(raw, '\n')
         local cached = state.cache[cell.header]
         if not cached or cached.text ~= text then
@@ -194,6 +242,7 @@ function M.refresh(buf)
   local state = states[buf]
   if not state or not api.nvim_buf_is_valid(buf) then return end
   state.pending = false
+  edit_options(buf)
   local renderer = require('render-markdown')
   for _, win in ipairs(vim.fn.win_findbuf(buf)) do
     renderer.render({ buf = buf, win = win, config = { enabled = true, render_modes = true, debounce = 0,
@@ -219,13 +268,18 @@ function M.attach(buf)
   if not renderer.initialized then renderer.setup(M.options({})) end
   if not handler_ready then return false end
   states[buf] = { cache = {}, revision = 0 }
+  for _, key in ipairs({ '<BS>', '<Del>' }) do
+    vim.keymap.set('i', key, function() return delete_key(buf, key) end,
+      { buffer = buf, expr = true, desc = 'Delete Notebook Markdown text' })
+  end
   if not configured then
     configured = true; colors()
     api.nvim_create_autocmd({ 'ColorScheme' }, { callback = function() colors(); for source in pairs(states) do schedule(source) end end })
   end
   local group_id = api.nvim_create_augroup('GlowNotebookMarkdown' .. buf, { clear = true })
-  api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI', 'CursorMoved', 'CursorMovedI', 'ModeChanged', 'BufWinEnter', 'WinScrolled' },
-    { group = group_id, buffer = buf, callback = function() schedule(buf) end })
+  api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI', 'CursorMoved', 'CursorMovedI', 'ModeChanged', 'InsertEnter', 'InsertLeave', 'BufWinEnter', 'WinScrolled' },
+    { group = group_id, buffer = buf, callback = function() edit_options(buf); schedule(buf) end })
+  api.nvim_create_autocmd('BufLeave', { group = group_id, buffer = buf, callback = function() edit_options(buf, true) end })
   api.nvim_create_autocmd('BufWipeout', { group = group_id, buffer = buf, callback = function() states[buf] = nil end })
   schedule(buf)
   return true

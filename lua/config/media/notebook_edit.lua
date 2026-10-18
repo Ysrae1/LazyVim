@@ -303,13 +303,13 @@ local function capsule(group, label, value)
 end
 
 -- Pure formatting keeps long names bounded without starting or querying a
--- kernel; actual session state still supplies every status word.
-function M.render_title(session, width)
+-- kernel; actual session state still supplies the status symbol.
+function M.render_title(session, width, layout)
   local prefix = M.leader_label()
   local selected = session.selected and session.selected.display_name or session.kernel
-  local status = session.starting and ("STARTING… " .. (selected or session.requested or ""))
-    or session.ready and selected or session.selected and ("STOPPED · " .. selected)
-    or ("SELECT " .. prefix .. "jk")
+  local status = session.starting and ("◌ " .. (selected or session.requested or ""))
+    or session.ready and selected or session.selected and ("■ " .. selected)
+    or (" " .. prefix .. "jk")
   local compact = width < 64
   local kernel_label = width < 40 and "K" or "KERNEL"
   local cells_label, menu_label = width < 56 and "C" or "CELLS", width < 56 and "M" or "MENU"
@@ -319,10 +319,19 @@ function M.render_title(session, width)
     { { previous, "GlowNotebookPrev" }, { gap, "GlowNotebookCellsValue" }, { following, "GlowNotebookNext" } })
   local menu_capsule, menu_width = capsule("Menu", menu_label, menu)
   local _, kernel_width = capsule("Kernel", kernel_label, "")
-  local outer_spacing = vim.fn.strdisplaywidth(" " .. " " .. " ")
+  local left_padding, right_padding = 1, 1
+  if vim.g.neovide_native_notebook == true then
+    layout = layout or {}
+    -- Match the input frame, rather than its inset language capsule. Winbar
+    -- uses whole cells and cannot draw beyond the actual resized text grid.
+    left_padding = math.max(0, math.floor(math.max(0.12, (layout.textoff or 2) - 0.8) + 0.5))
+    local frame_right = (layout.host_width or width) - 1.12
+    right_padding = math.max(0, math.floor(width - frame_right + 0.5))
+  end
+  local outer_spacing = left_padding + 1 + right_padding
   status = fit_text(status, math.max(1, width - cells_width - menu_width - kernel_width - outer_spacing))
-  return "%#GlowNotebookBar# " .. capsule("Kernel", kernel_label, status) .. "%="
-    .. cells .. " " .. menu_capsule .. " "
+  return "%#GlowNotebookBar#" .. string.rep(" ", left_padding) .. capsule("Kernel", kernel_label, status) .. "%="
+    .. cells .. " " .. menu_capsule .. string.rep(" ", right_padding)
 end
 
 local function title(buf)
@@ -330,7 +339,10 @@ local function title(buf)
   if not session then return end
   for _, win in ipairs(vim.fn.win_findbuf(buf)) do
     if vim.api.nvim_win_is_valid(win) then
-      vim.wo[win].winbar = M.render_title(session, vim.api.nvim_win_get_width(win))
+      local info = vim.fn.getwininfo(win)[1]
+      local host_width = vim.api.nvim_win_get_width(win)
+      vim.wo[win].winbar = M.render_title(session, info and info.width or host_width,
+        { textoff = info and info.textoff or 0, host_width = host_width })
     end
   end
 end

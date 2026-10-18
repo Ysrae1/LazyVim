@@ -70,6 +70,12 @@ def main():
             if not match:
                 continue
             original, arguments = match.groups()
+            # Folder.peek already runs on Yazi's main Lua VM. Sending the
+            # proxy's ya.sync clear event from there waits on that same VM and
+            # stalls directory loading/navigation. Its text preview needs no
+            # native image hook; retain the original synchronous entry point.
+            if original == "folder":
+                continue
             # Avoid recursively decorating a prior private config overlay.
             if original.startswith("neovide-glow-native-preview"):
                 raise ValueError("Yazi native preview overlay cannot be used as its own base config")

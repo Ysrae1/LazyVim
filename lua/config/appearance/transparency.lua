@@ -31,6 +31,7 @@ for _, level in ipairs({ 'Trace', 'Debug', 'Info', 'Warn', 'Error' }) do
 end
 local rows = { 'CursorLine', 'NeoTreeNormal', 'NeoTreeNormalNC', 'NeoTreeCursorLine' }
 local resolved_links = {}
+local dashboard_terminal
 local separator_chars = { vert = ' ', horiz = ' ', verthoriz = ' ', vertleft = ' ',
   vertright = ' ', horizup = ' ', horizdown = ' ' }
 
@@ -102,10 +103,33 @@ local function split_separators()
   end
 end
 
+local function dashboard_material()
+  -- Dashboard embeds its own terminal float, separate from SnacksNormal. Keep
+  -- this narrow rule away from ordinary terminals and non-Glass Neovide.
+  local name = 'SnacksDashboardTerminal'
+  local definition = vim.api.nvim_get_hl(0, { name = name, create = false })
+  if vim.g.neovide_liquid_glass == true then
+    if vim.fn.hlexists(name) == 0 then return end
+    if not dashboard_terminal or not vim.deep_equal(definition, dashboard_terminal.applied) then
+      dashboard_terminal = { original = definition }
+    end
+    apply(name, material_blend)
+    dashboard_terminal.applied = vim.api.nvim_get_hl(0, { name = name, create = false })
+  elseif dashboard_terminal then
+    if vim.deep_equal(definition, dashboard_terminal.applied) then
+      -- Snacks defines default links; restoring one must replace our explicit
+      -- definition rather than letting `default=true` skip the assignment.
+      vim.api.nvim_set_hl(0, name, vim.tbl_extend('force', dashboard_terminal.original, { default = false }))
+    end
+    dashboard_terminal, resolved_links[name] = nil, nil
+  end
+end
+
 function M.apply()
   if not vim.g.neovide then return end
   for _, name in ipairs(surfaces) do apply(name, material_blend) end
   for _, name in ipairs(rows) do apply(name, material_blend) end
+  dashboard_material()
   split_separators()
 end
 

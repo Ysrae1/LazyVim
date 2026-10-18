@@ -6,6 +6,10 @@ local api = {}
 local images, active = {}, {}
 local next_id, clock, pending, configured = 1000000, 0, false, false
 local namespace = vim.api.nvim_create_namespace("glow.molten.images")
+-- Created only when the native inline capability is actually used.
+local inline_namespace
+local inline_outputs, inline_revisions = {}, {}
+local cell_metrics
 local uv = vim.uv or vim.loop
 local MAX_ACTIVE, MAX_RECORDS = 8, 128
 
@@ -123,6 +127,20 @@ function api.image_size(identifier)
   -- Molten also clips the float below the selected source cell to the remaining
   -- screen height. Refit to that actual text area after the window is created.
   if win then max_height = math.max(1, math.min(max_height, vim.api.nvim_win_get_height(win) - 2)) end
+  if image.inline and win then
+    local info = vim.fn.getwininfo(win)[1] or {}
+    max_width = math.max(1, math.min(100, width - (info.textoff or 0) - 3))
+    max_height = math.max(1, math.min(28, vim.api.nvim_win_get_height(win) - 4))
+  end
+  if image.inline then
+    if not cell_metrics or not image.width or not image.height then
+      return { width = 0, height = 0, render_height = 0 }
+    end
+    local cell_width, cell_height = cell_metrics[1], cell_metrics[2]
+    local factor = math.min(1, max_width * cell_width / image.width, max_height * cell_height / image.height)
+    local height = image.height * factor / cell_height
+    return { width = image.width * factor / cell_width, height = math.ceil(height), render_height = height }
+  end
   if image.width and image.height and image.width > 0 and image.height > 0 then
     -- A grid cell is approximately twice as tall as wide. This determines
     -- padding only: native fit uses the exact renderer cell/pixel dimensions.
@@ -164,6 +182,129 @@ local function border(config, side)
     if char and char ~= "" then return 1 end
   end
   return 0
+end
+
+local function inline_changed(buf)
+  inline_revisions[buf] = (inline_revisions[buf] or 0) + 1
+  vim.schedule(function()
+    local ui = package.loaded['config.media.notebook_ui']
+    if ui then ui.refresh() end
+  end)
+end
+
+function M.inline_revision(buf)
+  return inline_revisions[buf] or 0
+end
+
+function M.clear_inline_output(key)
+  local output = inline_outputs[key]
+  if not output then return end
+  inline_outputs[key] = nil
+  for _, identifier in ipairs(output.images) do
+    local image = images[identifier]
+    if image then close(image); images[identifier] = nil end
+  end
+  if output.padding and vim.api.nvim_buf_is_valid(output.buffer) then
+    pcall(vim.api.nvim_buf_del_extmark, output.buffer, inline_namespace, output.padding)
+  end
+  inline_changed(output.buffer)
+end
+
+local function sync_inline(output)
+  if not vim.api.nvim_buf_is_valid(output.buffer) then M.clear_inline_output(output.key); return false end
+  local mark = vim.api.nvim_buf_get_extmark_by_id(output.buffer, output.namespace, output.mark, { details = true })
+  if #mark == 0 or mark[3].invalid then M.clear_inline_output(output.key); return false end
+  local lines, shape = {}, {}
+  for _, identifier in ipairs(output.images) do
+    local image = images[identifier]
+    if image then
+      image.inline_offset = #lines
+      local size = api.image_size(identifier)
+      shape[#shape + 1] = { size.width, size.height, size.render_height }
+      for _ = 1, size.height do lines[#lines + 1] = { { '', 'Normal' } } end
+    end
+  end
+  local signature = vim.json.encode({ mark[1], shape })
+  if signature ~= output.signature then
+    output.signature = signature
+    output.padding = vim.api.nvim_buf_set_extmark(output.buffer, inline_namespace, mark[1], 0, {
+      id = output.padding, virt_lines = lines, right_gravity = true, strict = false,
+    })
+    inline_changed(output.buffer)
+  end
+  return true
+end
+
+-- Called by the scoped Python writer instead of its original single request.
+-- That exact Molten mark stays authoritative; image rows have a separate owner.
+function M.set_inline_output(buf, ns, row, col, options, descriptors, key)
+  local mark = vim.api.nvim_buf_set_extmark(buf, ns, row, col, options)
+  if not available() or vim.g.neovide_native_image_anchor ~= true or not vim.b[buf].glow_notebook_edit then return mark end
+  inline_namespace = inline_namespace or vim.api.nvim_create_namespace('glow.molten.inline')
+  local output = inline_outputs[key]
+  if output and (output.buffer ~= buf or output.namespace ~= ns) then M.clear_inline_output(key); output = nil end
+  output = output or { key = key, buffer = buf, namespace = ns, images = {} }
+  inline_outputs[key] = output
+  if output.mark and output.mark ~= mark and output.padding then
+    pcall(vim.api.nvim_buf_del_extmark, buf, inline_namespace, output.padding)
+    output.padding, output.signature = nil, nil
+  end
+  output.mark = mark
+  local keep, identifiers = {}, {}
+  for index, descriptor in ipairs(descriptors) do
+    local identifier = 'inline:' .. key .. ':' .. index
+    api.from_file(descriptor.path, { id = identifier, buffer = buf, y = row })
+    local image = images[identifier]
+    image.inline, image.owner, image.visible = true, key, true
+    keep[identifier] = true; identifiers[#identifiers + 1] = identifier
+  end
+  for _, identifier in ipairs(output.images) do
+    if not keep[identifier] then local image = images[identifier]; if image then close(image); images[identifier] = nil end end
+  end
+  output.images = identifiers
+  sync_inline(output)
+  vim.schedule(M.refresh)
+  return mark
+end
+
+function M.inline_output_marks(buf)
+  local result = {}
+  for _, output in pairs(inline_outputs) do
+    if output.buffer == buf and output.padding and sync_inline(output) then
+      local mark = vim.api.nvim_buf_get_extmark_by_id(buf, inline_namespace, output.padding, { details = true })
+      if #mark > 0 then result[#result + 1] = { id = output.padding, namespace = inline_namespace,
+        row = mark[1], lines = #(mark[3].virt_lines or {}), above = false } end
+    end
+  end
+  return result
+end
+
+function M.on_cell_metrics(width, height)
+  if type(width) ~= 'number' or type(height) ~= 'number' or width <= 0 or height <= 0
+      or width ~= width or height ~= height or width == math.huge or height == math.huge then return end
+  if cell_metrics and cell_metrics[1] == width and cell_metrics[2] == height then return end
+  cell_metrics = { width, height }
+  vim.schedule(M.refresh)
+end
+
+local function inline_geometry(image, win)
+  if vim.fn.pumvisible() == 1 or vim.api.nvim_get_mode().mode:sub(1, 1) == 'c' then return nil end
+  local output = inline_outputs[image.owner]
+  local ui = package.loaded['config.media.notebook_ui']
+  if not output or not ui or not ui.virtual_output_geometry then return nil end
+  local area = ui.virtual_output_geometry(win, image.buffer, inline_namespace, output.padding)
+  if not area then return nil end
+  local size = api.image_size(image.identifier)
+  if size.height == 0 then return nil end
+  image.models = image.models or {}
+  local view = image.models[win]
+  if not view or view.anchor.epoch ~= area.anchor.epoch then
+    view = { row = area.row + image.inline_offset, col = area.col,
+      width = math.min(size.width, area.width), height = size.render_height,
+      clip = area.clip, anchor = area.anchor, zoom = 1, pan_x = 0, pan_y = 0, overlay = false }
+    image.models[win] = view
+  end
+  return view
 end
 
 local function geometry(image, win)
@@ -211,6 +352,7 @@ end
 
 function M.refresh()
   pending = false
+  for _, output in pairs(inline_outputs) do sync_inline(output) end
   local ordered = {}
   for _, image in pairs(images) do
     if image.visible then ordered[#ordered + 1] = image end
@@ -219,8 +361,8 @@ function M.refresh()
   local count = 0
   for _, image in ipairs(ordered) do
     local win = find_window(image)
-    if win then padding(image) end
-    local view = win and geometry(image, win)
+    if win and not image.inline then padding(image) end
+    local view = win and (image.inline and inline_geometry(image, win) or geometry(image, win))
     if view and count < MAX_ACTIVE and not image.error then
       count = count + 1
       if not image.native_id then
@@ -300,6 +442,7 @@ function api.clear(identifier)
 end
 
 function api.clear_all()
+  for key in pairs(inline_outputs) do M.clear_inline_output(key) end
   for identifier in pairs(images) do api.clear(identifier) end
   images = {}
 end
@@ -328,21 +471,26 @@ end
 
 function M.setup()
   if not available() then return false end
+  M.on_cell_metrics(vim.g.neovide_cell_width, vim.g.neovide_cell_height)
   -- Only Molten's loader is redirected; other image plugins keep their API.
   package.loaded["load_image_nvim"] = { image_api = api, image_utils = {} }
   if configured then return true end
   configured = true
   local group = vim.api.nvim_create_augroup("GlowMoltenImages", { clear = true })
-  vim.api.nvim_create_autocmd({ "WinScrolled", "WinResized", "VimResized", "TabEnter", "WinEnter", "WinClosed", "BufWinEnter", "BufWinLeave", "CompleteChanged", "CompleteDone", "CmdlineEnter", "CmdlineLeave" }, {
+  vim.api.nvim_create_autocmd({ "WinScrolled", "WinResized", "VimResized", "TabEnter", "WinEnter", "WinClosed", "BufWinEnter", "BufWinLeave", "TextChanged", "TextChangedI", "ModeChanged", "CompleteChanged", "CompleteDone", "CmdlineEnter", "CmdlineLeave" }, {
     group = group, callback = schedule,
   })
   vim.api.nvim_create_autocmd({ "BufWipeout", "BufDelete" }, {
     group = group, callback = function(event)
+      for key, output in pairs(inline_outputs) do if output.buffer == event.buf then M.clear_inline_output(key) end end
       for identifier, image in pairs(images) do
         if image.buffer == event.buf then api.clear(identifier); images[identifier] = nil end
       end
     end,
   })
+  vim.api.nvim_create_autocmd('TabLeave', { group = group, callback = function()
+    for _, image in pairs(images) do close(image) end
+  end })
   vim.api.nvim_create_autocmd("VimLeavePre", { group = group, callback = api.clear_all })
   return true
 end
