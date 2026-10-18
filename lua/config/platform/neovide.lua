@@ -25,6 +25,7 @@ vim.g.neovide_opacity = 0.95
 vim.g.neovide_normal_opacity = 0.9
 vim.g.neovide_refresh_rate = 120
 vim.g.neovide_window_blurred = true
+require("config.platform.glass").setup()
 vim.g.neovide_theme = "auto"
 vim.g.neovide_remember_window_size = true
 vim.g.neovide_profiler = false
@@ -88,6 +89,7 @@ local function adjust_scale(delta)
   vim.g.neovide_scale_factor = parse_scale((parse_scale(vim.g.neovide_scale_factor) or 1.0) + delta)
 end
 
+if vim.fn.has("macunix") == 1 then
 -- Keep the original zoom shortcuts and apply the saved value during startup.
 vim.keymap.set("n", "<D-->", function()
   adjust_scale(0.1)
@@ -98,6 +100,8 @@ end, { silent = true, desc = "Decrease Neovide scale" })
 vim.keymap.set("n", "<D-0>", function()
   vim.g.neovide_scale_factor = 1.0
 end, { silent = true, desc = "Reset Neovide scale" })
+
+end
 
 M.load_scale_factor()
 local group = vim.api.nvim_create_augroup("UserNeovideScale", { clear = true })

@@ -1,0 +1,379 @@
+-- Presentation only: real Neovim text and Molten outputs stay authoritative.
+-- Skia draws the rounded strokes; empty virtual rows supply their inner padding.
+local M = {}
+local states, windows, configured, pending, previous, timer = {}, {}, false, false, nil, nil
+local api = vim.api
+local padding_ns = api.nvim_create_namespace('glow.notebook.layout')
+local metadata_ns = api.nvim_create_namespace('glow.notebook.metadata')
+local markers_ns = api.nvim_create_namespace('glow.notebook.markers')
+local molten_ns = api.nvim_create_namespace('molten-extmarks')
+local blank = { { '', 'Normal' } }
+local next_epoch, popup_models = 0, {}
+
+local function available()
+  return vim.g.neovide_native_notebook == true and type(vim.g.neovide_channel_id) == 'number'
+end
+local function copy(value) return vim.deepcopy(value) end
+local function emit(frames)
+  if available() and not vim.deep_equal(previous, frames) then
+    previous = copy(frames)
+    pcall(vim.rpcnotify, vim.g.neovide_channel_id, 'neovide.notebook.frames', frames)
+    -- Local redraw supplies the matching UI flush after this notification. It
+    -- never requests or waits for anything from Neovide, including during scroll.
+    pcall(vim.cmd.redraw)
+  end
+end
+local function cells(buf)
+  local ok, editor = pcall(require, 'config.media.notebook_edit')
+  return ok and editor.cells(buf) or {}
+end
+local function is_output(lines)
+  for _, line in ipairs(lines or {}) do
+    local text = ''
+    for _, chunk in ipairs(line) do text = text .. chunk[1] end
+    if text:find('Out[', 1, true) then return true end
+  end
+  return false
+end
+local function outputs(buf)
+  local result = {}
+  for _, mark in ipairs(api.nvim_buf_get_extmarks(buf, molten_ns, 0, -1, { details = true })) do
+    local lines = mark[4].virt_lines
+    if lines and is_output(lines) then
+      -- Molten is the sole writer of its output. While running it replaces this
+      -- mark every tick; adding padding here used to make its height oscillate.
+      result[#result + 1] = { id = mark[1], row = mark[2], lines = #lines,
+        above = mark[4].virt_lines_above == true }
+    end
+  end
+  return result
+end
+local function cell_start(cell, count, show_source)
+  if show_source and cell.header > 0 then return cell.header end
+  if cell.first <= cell.last then return cell.first end
+  -- An empty cell needs a real editable line. A trailing marker with no such
+  -- line stays visible until text is inserted instead of hiding the cursor.
+  return math.max(1, math.min(cell.header + 1, cell.finish, count))
+end
+local function metadata(buf, state)
+  local lines = api.nvim_buf_get_lines(buf, 0, math.min(200, api.nvim_buf_line_count(buf)), false)
+  local last
+  if lines[1] and lines[1]:match('^# %-%-%-%s*$') then
+    for index = 2, #lines do
+      if lines[index]:match('^# %-%-%-%s*$') then last = index; break end
+    end
+  end
+  local signature = tostring(state.show_metadata) .. ':' .. tostring(last)
+  if signature ~= state.metadata then
+    state.metadata = signature
+    api.nvim_buf_clear_namespace(buf, metadata_ns, 0, -1)
+    if last and not state.show_metadata then
+      -- One mark per physical metadata line gives unambiguous conceal coverage.
+      for row = 0, last - 1 do
+        api.nvim_buf_set_extmark(buf, metadata_ns, row, 0, { conceal_lines = '' })
+      end
+      -- A newly opened Notebook starts at its first editable cell, rather than
+      -- leaving the real cursor inside metadata that has just become hidden.
+      local first = cells(buf)[1]
+      local target = first and math.max(last + 1, first.first) or last + 1
+      target = math.min(target, api.nvim_buf_line_count(buf))
+      for _, win in ipairs(vim.fn.win_findbuf(buf)) do
+        if api.nvim_win_get_cursor(win)[1] <= last then api.nvim_win_set_cursor(win, { target, 0 }) end
+      end
+    end
+  end
+end
+local function prepare(buf, state)
+  local editor = require('config.media.notebook_edit')
+  if editor.refresh_labels then editor.refresh_labels(buf) end
+  local list, out = cells(buf), outputs(buf)
+  local geometry = {}
+  for _, item in ipairs(out) do
+    -- Mark identity and equal-height text/status changes do not change layout.
+    geometry[#geometry + 1] = { row = item.row, lines = item.lines, above = item.above }
+  end
+  local signature = { list, geometry, api.nvim_buf_get_changedtick(buf), state.show_metadata }
+  if not vim.deep_equal(signature, state.layout) then
+    state.layout = copy(signature)
+    state.revision = (state.revision or 0) + 1
+    api.nvim_buf_clear_namespace(buf, padding_ns, 0, -1)
+    api.nvim_buf_clear_namespace(buf, markers_ns, 0, -1)
+    local count = api.nvim_buf_line_count(buf)
+    for _, cell in ipairs(list) do
+      local first = cell_start(cell, count, state.show_metadata)
+      if cell.header > 0 and first > cell.header and not state.show_metadata then
+        api.nvim_buf_set_extmark(buf, markers_ns, cell.header - 1, 0, {
+          conceal_lines = '',
+        })
+      end
+      local last = math.max(first, cell.last)
+      local has_output = false
+      for _, item in ipairs(out) do
+        if item.row + 1 >= first and item.row + 1 <= math.max(last, cell.finish) then has_output = true; break end
+      end
+      api.nvim_buf_set_extmark(buf, padding_ns, first - 1, 0, {
+        virt_lines = { copy(blank) }, virt_lines_above = true, right_gravity = false, strict = false,
+      })
+      if not has_output then
+        api.nvim_buf_set_extmark(buf, padding_ns, last - 1, 0, {
+          virt_lines = { copy(blank) }, right_gravity = false, strict = false,
+        })
+      end
+    end
+    for _, win in ipairs(vim.fn.win_findbuf(buf)) do
+      local row = api.nvim_win_get_cursor(win)[1]
+      for _, cell in ipairs(list) do
+        if row == cell.header and not state.show_metadata then
+          api.nvim_win_set_cursor(win, { cell_start(cell, count, false), 0 }); break
+        end
+      end
+    end
+  end
+  metadata(buf, state)
+  return list, out
+end
+local function window_geometry(win, outer)
+  local info = vim.fn.getwininfo(win)[1]
+  if not info then return end
+  local position = api.nvim_win_get_position(win)
+  local config = api.nvim_win_get_config(win)
+  local top, left = position[1] + (info.winbar or 0), position[2]
+  local border_top, border_bottom, border_left, border_right = 0, 0, 0, 0
+  local border = config.border
+  if type(border) == 'table' then
+    local function exists(indices)
+      for _, index in ipairs(indices) do
+        local value = border[index]
+        if type(value) == 'table' then value = value[1] end
+        if value and value ~= '' then return 1 end
+      end
+      return 0
+    end
+    border_top, border_bottom = exists({1,2,3}), exists({5,6,7})
+    border_left, border_right = exists({1,8,7}), exists({3,4,5})
+    top = top + border_top; left = left + border_left
+  end
+  if outer then
+    -- Neovide identifies the owning floating grid by its complete bounds,
+    -- including any border that an already-running Molten host still supplies.
+    return { row = position[1], col = position[2],
+      width = config.width + border_left + border_right,
+      height = config.height + border_top + border_bottom }, info
+  end
+  return { row = top, col = left, width = info.width, height = info.height }, info
+end
+local function line_geometry(win, info, clip)
+  local saved = api.nvim_win_call(win, vim.fn.winsaveview)
+  local ref = info.topline
+  -- Screenpos can still describe the previous screen immediately after virtual
+  -- rows change. Text-height + the saved viewport is the logical grid model and
+  -- is valid before redraw as well as while the native spring is still moving.
+  local skipped = 0
+  if (saved.skipcol or 0) > 0 then
+    skipped = api.nvim_win_text_height(win, { start_row = ref - 1, start_vcol = 0,
+      end_row = ref - 1, end_vcol = saved.skipcol }).all
+  end
+  local ref_row = clip.row + (saved.topfill or 0) - skipped
+  local cache = {}
+  local function text_row(line)
+    if cache[line] then return cache[line] end
+    local a, b = math.min(ref, line), math.max(ref, line)
+    local distance = 0
+    if a ~= b then
+      distance = api.nvim_win_text_height(win, { start_row = a - 1, start_vcol = 0, end_row = b - 1, end_vcol = 0 }).all
+    end
+    local row = ref_row + (line >= ref and distance or -distance)
+    cache[line] = row
+    return row
+  end
+  local function text_height(line)
+    return api.nvim_win_text_height(win, { start_row = line - 1, start_vcol = 0, end_row = line - 1 }).all
+  end
+  return text_row, text_height
+end
+local function normal_frames(win, buf, list, out, frames)
+  if not windows[win] then
+    windows[win] = { buf = buf, conceallevel = vim.wo[win].conceallevel,
+      concealcursor = vim.wo[win].concealcursor, signcolumn = vim.wo[win].signcolumn }
+  end
+  local initial = vim.fn.getwininfo(win)[1]
+  if initial and initial.textoff < 2 then vim.wo[win].signcolumn = 'yes:1' end
+  local clip, info = window_geometry(win)
+  if not clip then return end
+  local state = states[buf]
+  if not state.show_metadata then vim.wo[win].conceallevel = 2; vim.wo[win].concealcursor = 'nvic'
+  else vim.wo[win].conceallevel = windows[win].conceallevel; vim.wo[win].concealcursor = windows[win].concealcursor end
+  local current = api.nvim_win_get_cursor(win)[1]
+  local selected
+  for index, cell in ipairs(list) do
+    if current >= math.max(1, cell.header) then selected = index end
+  end
+  local cached = windows[win]
+  local key = { state.revision, state.metadata, clip.width, clip.height, info.textoff,
+    info.winbar, vim.wo[win].wrap, vim.wo[win].foldlevel, vim.wo[win].foldenable }
+  if vim.deep_equal(key, cached.model_key) then
+    for _, frame in ipairs(cached.frames) do
+      local item = copy(frame)
+      item.active = item.kind == 'input' and item.cell == selected and win == api.nvim_get_current_win()
+      item.dark = vim.o.background == 'dark'
+      frames[#frames + 1] = item
+    end
+    return
+  end
+  next_epoch = next_epoch + 1
+  local epoch, first_frame = next_epoch, #frames + 1
+  local row_at, line_height = line_geometry(win, info, clip)
+  local text_left = clip.col + (info.textoff or 0)
+  -- Leave line numbers untouched: the stroke lives in the gap at their right.
+  local left = math.max(clip.col + 0.12, text_left - 0.8)
+  local width = clip.col + clip.width - 0.12 - left
+  for index, cell in ipairs(list) do
+    local first = cell_start(cell, api.nvim_buf_line_count(buf), state.show_metadata)
+    local last = math.max(first, cell.last)
+    local has_output = false
+    for _, item in ipairs(out) do
+      if item.row + 1 >= math.max(1, cell.header) and item.row + 1 <= cell.finish then has_output = true; break end
+    end
+    local top = row_at(first) - 0.65
+    local bottom = row_at(last) + line_height(last) + (has_output and -0.05 or 0.4)
+    local rect = { row = top, col = left, width = width, height = math.max(1, bottom - top) }
+    frames[#frames + 1] = { kind = 'input', cell = index, rect = rect, clip = clip,
+      active = index == selected and win == api.nvim_get_current_win(), dark = vim.o.background == 'dark' }
+  end
+  -- Traverse the actual marks in rendering order, including other plugins' rows.
+  -- This avoids guessing the location from output text length or mark IDs.
+  local offset_above, offset_below = {}, {}
+  local wanted = {}
+  for _, item in ipairs(out) do wanted[item.id] = item end
+  for _, mark in ipairs(api.nvim_buf_get_extmarks(buf, -1, 0, -1, { details = true })) do
+    local d, row = mark[4], mark[2]
+    if d.virt_lines and not d.invalid then
+      local offsets = d.virt_lines_above and offset_above or offset_below
+      local offset = offsets[row] or 0
+      if d.ns_id == molten_ns and wanted[mark[1]] then
+        local top = row_at(row + 1)
+        if d.virt_lines_above then
+          local total = 0
+          for _, other in ipairs(api.nvim_buf_get_extmarks(buf, -1, {row,0}, {row,-1}, {details=true})) do
+            if other[4].virt_lines_above then total = total + #(other[4].virt_lines or {}) end
+          end
+          top = top - total
+        else top = top + line_height(row + 1) end
+        top = top + offset
+        local rect = { row = top + 0.05, col = left, width = width, height = #d.virt_lines - 0.1 }
+        frames[#frames + 1] = { kind = 'output', rect = rect, clip = clip, active = false, dark = vim.o.background == 'dark' }
+      end
+      offsets[row] = offset + #d.virt_lines
+    end
+  end
+  -- Freeze document layout in owner-local coordinates. Wheel scrolling updates
+  -- the renderer's viewport counter/spring, not this Lua geometry snapshot.
+  -- Keep offscreen cells too so they can enter the viewport without another RPC.
+  local origin = api.nvim_win_get_position(win)
+  cached.model_key, cached.frames = copy(key), {}
+  for index = first_frame, #frames do
+    local frame = frames[index]
+    frame.rect.row, frame.rect.col = frame.rect.row - origin[1], frame.rect.col - origin[2]
+    frame.clip = copy(frame.clip)
+    frame.clip.row, frame.clip.col = frame.clip.row - origin[1], frame.clip.col - origin[2]
+    frame.anchor = { window = win, epoch = epoch, scroll = true }
+    cached.frames[#cached.frames + 1] = copy(frame)
+  end
+end
+function M.refresh()
+  pending = false
+  if not available() then return {} end
+  for win, saved in pairs(windows) do
+    if not api.nvim_win_is_valid(win) or api.nvim_win_get_buf(win) ~= saved.buf then
+      if api.nvim_win_is_valid(win) then
+        for _, key in ipairs({ 'conceallevel', 'concealcursor', 'signcolumn' }) do vim.wo[win][key] = saved[key] end
+      end
+      windows[win] = nil
+    end
+  end
+  local frames, prepared, notebook_visible = {}, {}, false
+  for _, win in ipairs(api.nvim_tabpage_list_wins(0)) do
+    local buf = api.nvim_win_get_buf(win)
+    if states[buf] and api.nvim_win_get_config(win).relative == '' then
+      notebook_visible = true
+      if not prepared[buf] then prepared[buf] = { prepare(buf, states[buf]) } end
+      normal_frames(win, buf, prepared[buf][1], prepared[buf][2], frames)
+    end
+  end
+  if notebook_visible then
+    for _, win in ipairs(api.nvim_tabpage_list_wins(0)) do
+      local buf = api.nvim_win_get_buf(win)
+      local config = api.nvim_win_get_config(win)
+      if vim.bo[buf].filetype == 'molten_output' and config.relative ~= '' then
+        local clip = window_geometry(win, true)
+        if clip and clip.width > 1 and clip.height > 0.5 then
+          local origin = api.nvim_win_get_position(win)
+          local key = { buf, clip.width, clip.height }
+          local model = popup_models[win]
+          if not model or not vim.deep_equal(model.key, key) then
+            next_epoch = next_epoch + 1
+            model = { key = key, epoch = next_epoch }; popup_models[win] = model
+          end
+          local local_clip = copy(clip)
+          local_clip.row, local_clip.col = clip.row - origin[1], clip.col - origin[2]
+          frames[#frames + 1] = { kind = 'output', overlay = true,
+            rect = { row = local_clip.row + 0.08, col = local_clip.col + 0.12, width = clip.width - 0.24, height = clip.height - 0.16 },
+            clip = local_clip, anchor = { window = win, epoch = model.epoch, scroll = false },
+            active = win == api.nvim_get_current_win(), dark = vim.o.background == 'dark' }
+        end
+      end
+    end
+  end
+  for win in pairs(popup_models) do
+    if not api.nvim_win_is_valid(win) then popup_models[win] = nil end
+  end
+  emit(frames)
+  return frames
+end
+local function schedule()
+  if pending then return end
+  pending = true
+  vim.schedule(M.refresh)
+end
+function M.attach(buf)
+  buf = buf or api.nvim_get_current_buf()
+  if not available() or not api.nvim_buf_is_valid(buf) then return false end
+  M.setup()
+  states[buf] = states[buf] or { show_metadata = false }
+  schedule()
+  return true
+end
+function M.toggle_metadata(buf)
+  buf = buf or api.nvim_get_current_buf()
+  if states[buf] then states[buf].show_metadata = not states[buf].show_metadata; schedule() end
+end
+function M.setup()
+  if configured or not available() then return end
+  configured = true
+  -- Configure Molten before its first initialization, instead of fighting its
+  -- recurring Python popup updates by changing an individual window afterward.
+  vim.g.molten_output_win_border = 'none'
+  local group = api.nvim_create_augroup('GlowNotebookUI', { clear = true })
+  api.nvim_create_autocmd({ 'CursorMoved', 'CursorMovedI', 'TextChanged', 'TextChangedI', 'WinScrolled',
+    'WinResized', 'VimResized', 'BufWinEnter', 'BufWinLeave', 'WinEnter', 'WinClosed', 'TabEnter', 'ColorScheme' },
+    { group = group, callback = schedule })
+  api.nvim_create_autocmd('TabLeave', { group = group, callback = function()
+    -- Native bindings are cleared with the hidden tab. Returning measures a new
+    -- logical viewport instead of rebinding an old cached scrolling origin.
+    for _, cached in pairs(windows) do cached.model_key = nil end
+    previous = nil; emit({})
+  end })
+  api.nvim_create_autocmd('BufWipeout', { group = group, callback = function(ev) states[ev.buf] = nil; schedule() end })
+  api.nvim_create_autocmd('VimLeavePre', { group = group, callback = function()
+    if timer then timer:stop(); timer:close(); timer = nil end
+    emit({})
+  end })
+  api.nvim_create_user_command('GlowNotebookMetadata', function() M.toggle_metadata() end,
+    { desc = '显示或隐藏 Notebook 序列化元数据' })
+  timer = vim.uv.new_timer()
+  -- Molten changes extmarks without changing buffer text or firing TextChanged.
+  timer:start(150, 150, vim.schedule_wrap(function()
+    if next(states) then schedule() end
+  end))
+end
+return M

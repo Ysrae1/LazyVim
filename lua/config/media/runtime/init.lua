@@ -132,6 +132,11 @@ function M.configure_molten()
   vim.g.molten_virt_text_max_lines = 16
   vim.g.molten_wrap_output = true
   vim.g.molten_tick_rate = 100
+  if vim.g.neovide_native_notebook == true then
+    -- Molten snapshots this option when its Python host initializes and reapplies
+    -- it on every popup refresh. Keep character borders out of the native frame.
+    vim.g.molten_output_win_border = "none"
+  end
   vim.g.molten_image_provider = "none"
   vim.g.molten_image_location = "float"
   local ok, images = pcall(require, "config.media.molten_images")

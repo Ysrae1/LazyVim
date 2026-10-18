@@ -46,8 +46,10 @@ M.ui = {
     -- default/round/block/arrow separators work only for default statusline theme
     -- round and block will work for minimal theme only
     separator_style = "round",
-    order = nil,
-    modules = nil,
+    order = { "left_padding", "mode", "file", "git", "%=", "lsp_msg", "%=", "diagnostics", "lsp", "cwd", "cursor" },
+    modules = {
+      left_padding = "%#ST_EmptySpace#  ",
+    },
   },
 
   -- lazyload it when there are 1+ buffers

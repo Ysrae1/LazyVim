@@ -78,6 +78,7 @@ function M.refresh()
       visible[win]=true
       if not view.id then
         next_id=next_id+1; view.id=next_id; active[view.id]=view
+        view.inverse_seq=nil
         view.resume=view.status and view.status.position or 0
         view.resume_page=view.status and view.status.page
         view.status={state='loading',volume=view.volume or 1}
@@ -110,6 +111,12 @@ function M.on_status(id,json)
   if not ok or type(status)~='table' then return end
   local previous=view.status or {}
   view.status=status
+  if view.kind=='pdf' and type(status.synctex)=='table' and status.synctex.seq~=view.inverse_seq then
+    view.inverse_seq=status.synctex.seq
+    local tab=vim.api.nvim_win_is_valid(view.win) and vim.api.nvim_win_get_tabpage(view.win)
+    require('config.media.synctex').inverse(view.source,status.synctex,{win=view.opts.synctex_sourcewin,tab=tab,pdf_win=view.win,
+      valid=function() return active[id]==view end})
+  end
   if status.volume then view.volume=status.volume end
   if status.zoom then view.zoom=status.zoom end
   if status.url and status.url~='' then view.current_url=status.url end
@@ -140,6 +147,25 @@ function M.status()
   local v=current()
   if not v then return nil end
   return vim.tbl_extend('force',vim.deepcopy(v.status or {}),{kind=v.kind,source=v.source,id=v.id,win=v.win})
+end
+-- Source-identified targeting avoids sending a SyncTeX result to whichever
+-- unrelated media view happens to be current when its asynchronous CLI ends.
+function M.pdf_sync(source,point,opts)
+  opts=opts or {}; source=canonical(source)
+  local target
+  for _,win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+    local view=views[win]
+    if view and view.kind=='pdf' and view.source==source then target=view; break end
+  end
+  if not target then
+    if not M.open(source,{kind='pdf',synctex_sourcewin=opts.win}) then return false end
+    target=views[vim.api.nvim_get_current_win()]
+  end
+  if not target or not target.id then return false end
+  target.opts.synctex_sourcewin=opts.win or target.opts.synctex_sourcewin
+  rpc('pdf_sync',target.id,point)
+  if not opts.activate and opts.win and vim.api.nvim_win_is_valid(opts.win) then vim.api.nvim_set_current_win(opts.win) end
+  return true
 end
 function M.seek(delta)
   local v=current(); if not v then return end
@@ -235,6 +261,7 @@ end
 function M.setup()
   if configured then return end
   configured=true
+  require('config.media.synctex').setup()
   for lhs,rhs in pairs({['<C-Tab>']='gt',['<C-S-Tab>']='gT'}) do
     if vim.fn.maparg(lhs,'n')=='' then vim.keymap.set('n',lhs,rhs,{silent=true,desc='切换 Neovim 标签页'}) end
   end

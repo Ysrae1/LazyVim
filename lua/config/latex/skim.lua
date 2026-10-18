@@ -31,6 +31,7 @@ function M.cancel()
 end
 
 function M.check()
+  if require('config.media.synctex').native_enabled() then return true end
   -- Application("Skim").id() can itself trigger a blocking macOS dialog.
   local available = vim.fn.executable(app_path() .. "/Contents/MacOS/Skim") == 1
     and vim.fn.executable("/usr/bin/osascript") == 1
@@ -42,6 +43,11 @@ end
 
 function M.view(outfile, open, sync, activate)
   M.cancel()
+  local native=require('config.media.synctex')
+  if native.native_enabled() then
+    if sync then return native.forward(outfile,{activate=activate}) end
+    return require('config.media.preview').open(outfile,{kind='pdf'})
+  end
   local pdf_path = vim.fn.fnamemodify(outfile, ":p")
   local stem = vim.fn.fnamemodify(pdf_path, ":r")
   if sync and vim.fn.filereadable(stem .. ".synctex") == 0 and vim.fn.filereadable(stem .. ".synctex.gz") == 0 then
