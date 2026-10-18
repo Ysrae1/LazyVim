@@ -20,12 +20,15 @@ return {
       },
     },
     ---@type YaziConfig
-    opts = {
-      -- if you want to open yazi instead of netrw, see below for more info
-      open_for_directories = false,
-      keymaps = {
-        show_help = "<f1>",
-      },
-    },
+    opts = function(_, opts)
+      opts = vim.tbl_deep_extend("force", opts or {}, {
+        -- if you want to open yazi instead of netrw, see below for more info
+        open_for_directories = false,
+        keymaps = {
+          show_help = "<f1>",
+        },
+      })
+      return require("config.media.yazi").configure(opts)
+    end,
   },
 }
