@@ -83,13 +83,13 @@ function M.render_title(view,width)
     end
     if status.state=='error' then add('Menu',compact and 'R' or 'RETRY','r') end
     add('Menu',compact and 'I' or 'FOCUS','i');add('Menu',compact and 'Q' or 'CLOSE','q')
-    return '%#GlowMediaBar# '..left..'%='..table.concat(right,' ')..' ',left_width+right_width+(show_status and 3 or 2)
+    return capsule.bar(left,table.concat(right,' '),left_width,right_width)
   end
   for _,variant in ipairs({{false,true,2,true},{false,false,1,true},{true,false,1,true},{true,false,0,true},{true,false,0,false}}) do
     local result,size=layout(unpack(variant))
     if size<=width then return result end
   end
-  return '%#GlowMediaMenuValue#q'
+  return capsule.close_hint(width)
 end
 local function title(view)
   if not vim.api.nvim_win_is_valid(view.win) then return end

@@ -61,8 +61,7 @@ function M.render_title(view, width)
     if pan then add("Action", compact and "P" or "PAN", "hjkl") end
     if view.error then add("Menu", compact and "R" or "RETRY", "r") end
     add("Menu", compact and "Q" or "CLOSE", "q")
-    return "%#GlowMediaBar# " .. left .. "%=" .. table.concat(right, " ") .. " ",
-      left_width + right_width + (status and 3 or 2)
+    return capsule.bar(left, table.concat(right, " "), left_width, right_width)
   end
   for _, variant in ipairs({
     { false, true, true, true, true }, { false, false, true, true, true },
@@ -72,7 +71,7 @@ function M.render_title(view, width)
     local result, size = layout(unpack(variant))
     if size <= width then return result end
   end
-  return "%#GlowMediaMenuValue#q"
+  return capsule.close_hint(width)
 end
 
 local function title(view)

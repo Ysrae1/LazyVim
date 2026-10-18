@@ -1,6 +1,18 @@
--- Small statusline formatter shared by native media controls. Layout belongs to
--- the caller, so Notebook's independently aligned title remains untouched.
+-- Shared native media controls. Notebook keeps its own independent alignment.
 local M = {}
+
+-- Match NvChad minimal's final position capsule: one grid column after its
+-- right endcap. PDF and image headers share this edge and width accounting.
+function M.bar(left, right, left_width, right_width)
+  local right_padding = " "
+  return "%#GlowMediaBar# " .. left .. "%=" .. right .. right_padding,
+    left_width + right_width + (left ~= "" and 3 or 2)
+end
+
+function M.close_hint(width)
+  if width < 2 then return "%#GlowMediaMenuValue#q" end
+  return "%#GlowMediaBar#%=%#GlowMediaMenuValue#q%#GlowMediaBar# "
+end
 
 function M.format(group, label, value)
   label = tostring(label):gsub("^%s+", ""):gsub("%s+$", "")
