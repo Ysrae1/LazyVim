@@ -51,6 +51,155 @@ function M.sidecar(filename, extension)
   return cache_directory .. "/" .. vim.fn.sha256(original) .. "." .. extension
 end
 
+function M.read_notebook(filename)
+  local stat = vim.uv.fs_stat(filename)
+  if not stat or stat.type ~= "file" or stat.size > 32 * 1024 * 1024 then
+    error("请选择不超过 32 MiB 的本地 Notebook 文件。", 0)
+  end
+  local file = assert(io.open(filename, "rb"))
+  local raw = file:read("*a"); file:close()
+  local ok, document = pcall(vim.json.decode, raw)
+  if not ok then error("该 .ipynb 不是有效的 JSON Notebook；文件未改动，请先从备份恢复。", 0) end
+  if type(document) ~= "table" or document.nbformat ~= 4 or type(document.cells) ~= "table" then
+    error("原生 Notebook 编辑需要 nbformat 4。", 0)
+  end
+  return document
+end
+
+local function write_notebook(event)
+  for _, handler in ipairs(vim.api.nvim_get_autocmds({ event = "BufWriteCmd", buffer = event.buf })) do
+    if handler.group_name == "jupytext-nvim" then return end
+  end
+  local path = vim.api.nvim_buf_get_name(event.buf)
+  local staged = vim.fs.joinpath(vim.fs.dirname(path), "." .. vim.fs.basename(path)
+    .. ".glow-" .. vim.fn.getpid() .. "-" .. vim.uv.hrtime() .. ".ipynb")
+  local ok, err = pcall(function()
+    local lines = vim.api.nvim_buf_get_lines(event.buf, 0, -1, false)
+    local first = 1
+    while first <= #lines and lines[first]:match("^%s*$") do first = first + 1 end
+    local percent = lines[first] == "# ---"
+    for _, line in ipairs(lines) do if line:match("^# %%%%") then percent = true; break end end
+    if not percent then error("当前缓冲区不是 Notebook percent 源码，请重新打开文件。", 0) end
+    -- A restored buffer may have blank rows before the Jupytext YAML header.
+    -- Strip only that leading padding in the private serialization copy.
+    if lines[first] == "# ---" and first > 1 then lines = vim.list_slice(lines, first) end
+    local exists = vim.fn.filereadable(path) == 1
+    if exists then
+      M.read_notebook(path)
+      assert(vim.uv.fs_copyfile(path, staged))
+    end
+    local python = M.sidecar(path, "py")
+    vim.fn.writefile(lines, python)
+    local args = { "--from", "py:percent", "--to", "ipynb", "--output", staged }
+    if exists then args[#args + 1] = "--update" end
+    args[#args + 1] = python
+    M.convert(args)
+    M.read_notebook(staged)
+    assert(vim.uv.fs_rename(staged, path))
+  end)
+  if not ok then
+    vim.fn.delete(staged)
+    vim.bo[event.buf].modified = true
+    error("Notebook 未保存，原文件已保留：" .. tostring(err), 0)
+  end
+  vim.bo[event.buf].modified = false
+  vim.api.nvim_exec_autocmds("BufWritePost", { buffer = event.buf, modeline = false })
+end
+
+-- Safe to hot-install: this never clears/reconfigures Jupytext's reader.
+function M.install_write_guard()
+  local group = vim.api.nvim_create_augroup("GlowNotebookWriteSafety", { clear = false })
+  if #vim.api.nvim_get_autocmds({ group = group, event = "BufWriteCmd", pattern = "*.ipynb" }) > 0 then return end
+  vim.api.nvim_create_autocmd("BufWriteCmd", { group = group, pattern = "*.ipynb", callback = function(event)
+    for _, handler in ipairs(vim.api.nvim_get_autocmds({ event = "BufWriteCmd", buffer = event.buf })) do
+      if handler.buflocal then return end
+    end
+    write_notebook(event)
+  end })
+  vim.api.nvim_create_autocmd("BufWritePre", { group = group, pattern = "*.ipynb", callback = function(event)
+    -- Last-resort abort if every write command was externally removed. Restore
+    -- the guard before allowing a later save; never fall through to raw Python.
+    M.ensure_notebook_writer(event.buf)
+    error("已阻止直接写入 Notebook 源码；安全保存回调已恢复，请重新保存。", 0)
+  end })
+end
+
+function M.ensure_notebook_writer(buf)
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+  M.install_write_guard()
+  vim.b[buf].glow_notebook_writer = true
+  local group = vim.api.nvim_create_augroup("GlowNotebookWriteSafety", { clear = false })
+  for _, handler in ipairs(vim.api.nvim_get_autocmds({ event = "BufWriteCmd", buffer = buf })) do
+    if handler.buflocal and handler.group == group then return end
+  end
+  -- Upstream remains the single writer while its own callback is present.
+  vim.api.nvim_create_autocmd("BufWriteCmd", { group = group, buffer = buf, callback = write_notebook })
+end
+
+local function percent_source(lines)
+  for _, line in ipairs(lines) do
+    if line == "# ---" or line:match("^# %%%%") then return true end
+  end
+  return false
+end
+
+function M.complete_notebook_load(buf)
+  if not vim.api.nvim_buf_is_valid(buf) or not vim.api.nvim_buf_is_loaded(buf)
+    or not percent_source(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) then return false end
+  local modified = vim.bo[buf].modified
+  M.ensure_notebook_writer(buf)
+  vim.bo[buf].fileencoding, vim.bo[buf].filetype = "utf-8", "python"
+  if not vim.b[buf].glow_notebook_read_complete then
+    vim.b[buf].glow_notebook_read_complete = true
+    vim.api.nvim_buf_call(buf, function()
+      vim.api.nvim_exec_autocmds("BufReadPost", { buffer = buf, modeline = false })
+    end)
+  end
+  vim.bo[buf].modified = modified
+  return true
+end
+
+-- Wrap the pinned reader, retaining all of its normal serialization/undo work.
+-- This can be installed on an already running editor without clearing groups.
+function M.install_reader_guard()
+  local count = 0
+  for _, handler in ipairs(vim.api.nvim_get_autocmds({ event = "BufReadCmd", group = "jupytext-nvim" })) do
+    if type(handler.callback) == "function" and handler.desc ~= "GlowNotebookReadGuard" then
+      local original = handler.callback
+      vim.api.nvim_del_autocmd(handler.id)
+      vim.api.nvim_create_autocmd("BufReadCmd", { group = handler.group, pattern = handler.pattern,
+        desc = "GlowNotebookReadGuard", callback = function(event)
+          vim.b[event.buf].glow_notebook_read_complete = nil
+          vim.b[event.buf].glow_notebook_swap_read_resumed = nil
+          local set_lines = vim.api.nvim_buf_set_lines
+          vim.api.nvim_buf_set_lines = function(buf, first, last, strict, lines)
+            local ok, result = pcall(set_lines, buf, first, last, strict, lines)
+            if not ok then
+              local target = buf == 0 and vim.api.nvim_get_current_buf() or buf
+              -- Choosing "edit anyway" can raise E325 AFTER writing the
+              -- complete converted text. Continue only that exact operation;
+              -- any other error or partial/unrelated mutation still fails.
+              if target == event.buf and first == 0 and last == -1
+                and tostring(result):find("E325:", 1, true) and percent_source(lines)
+                and vim.deep_equal(vim.api.nvim_buf_get_lines(target, 0, -1, false), lines) then
+                vim.b[event.buf].glow_notebook_swap_read_resumed = true
+                return
+              end
+              error(result, 0)
+            end
+            return result
+          end
+          local ok, err = pcall(original, event)
+          vim.api.nvim_buf_set_lines = set_lines
+          if not ok then error(err, 0) end
+          M.complete_notebook_load(event.buf)
+        end })
+      count = count + 1
+    end
+  end
+  return count
+end
+
 -- Upstream jupytext.nvim currently hardcodes the `jupytext` command. Keep its
 -- format and buffer handling, but select our isolated CLI without changing PATH
 -- (which would also change unrelated LSP, terminal, and Python processes).
@@ -62,16 +211,7 @@ function M.configure_jupytext()
   -- Minimal valid nbformat files may omit kernelspec metadata. This first
   -- editable frontend is Python; report other declared languages explicitly.
   utils.get_ipynb_metadata = function(filename)
-    local stat = vim.uv.fs_stat(filename)
-    if not stat or stat.type ~= "file" or stat.size > 32 * 1024 * 1024 then
-      error("请选择不超过 32 MiB 的本地 Notebook 文件。")
-    end
-    local file = assert(io.open(filename, "rb"))
-    local raw = file:read("*a"); file:close()
-    local document = vim.json.decode(raw)
-    if type(document) ~= "table" or document.nbformat ~= 4 or type(document.cells) ~= "table" then
-      error("原生 Notebook 编辑需要 nbformat 4。")
-    end
+    local document = M.read_notebook(filename)
     local metadata = document.metadata or {}
     local language = (metadata.kernelspec or {}).language or (metadata.language_info or {}).name or "python"
     if language:lower() ~= "python" and language:lower() ~= "python3" then
@@ -80,12 +220,14 @@ function M.configure_jupytext()
     return { language = "python", extension = "py" }
   end
   local group = vim.api.nvim_create_augroup("GlowNotebookRuntime", { clear = true })
+  M.install_write_guard()
   -- Register before upstream's BufReadCmd. Reload must convert the current
   -- notebook from disk, rather than reusing this session's old private sidecar.
   vim.api.nvim_create_autocmd("BufReadCmd", {
     group = group,
     pattern = "*.ipynb",
     callback = function(ev)
+      M.ensure_notebook_writer(ev.buf)
       vim.fn.delete(M.sidecar(ev.match, "py"))
     end,
   })
@@ -121,6 +263,7 @@ function M.configure_jupytext()
     output_extension = "py",
     force_ft = "python",
   })
+  M.install_reader_guard()
 end
 
 local adapter_path = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":h") .. "/glow_molten_output.py"

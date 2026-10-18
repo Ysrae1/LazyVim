@@ -1,5 +1,6 @@
 -- AppKit previews use notifications only. Never make a synchronous Neovide RPC.
 local M = {}
+local capsule = require('config.media.capsule')
 local views, active, next_id, configured, pending, timer = {}, {}, 0, false, false, nil
 local audio = { mp3=true, m4a=true, aac=true, wav=true, aiff=true, aif=true, caf=true, flac=true }
 local video = { mp4=true, m4v=true, mov=true, mpg=true, mpeg=true }
@@ -47,17 +48,52 @@ local function dispose(view)
   restore(view)
   if view.opts.on_close and not view.disposed then view.disposed=true; pcall(view.opts.on_close) end
 end
-local states={ loading='正在加载…',ready='已就绪',playing='播放中',paused='已暂停',ended='播放结束',error='加载失败' }
+local states={ loading='…',ready='READY',playing='PLAYING',paused='PAUSED',ended='ENDED',error='ERROR' }
+-- The buffer/status line already identifies the file. Keep media controls in
+-- the same compact, theme-adaptive capsules as the image preview.
+function M.render_title(view,width)
+  local status=view.status or {}
+  local state=states[status.state] or '…'
+  local function layout(compact,details,controls,show_status)
+    local value=state
+    if view.kind=='pdf' and status.state~='error' and (status.pages or 0)>0 then
+      value=('%d/%d · %.0f%%'):format(status.page or 0,status.pages,(status.zoom or 1)*100)
+    elseif view.kind=='web' and status.state=='ready' then
+      value=('%.0f%%'):format((status.zoom or view.zoom or 1)*100)
+    elseif view.kind~='web' and view.kind~='pdf' and details and status.state~='loading' then
+      value=('%s · %.0f/%.0fs · %d%%'):format(state,status.position or 0,status.duration or 0,math.floor((status.volume or 1)*100+.5))
+    end
+    local left,left_width='',0
+    if show_status then
+      local label=({pdf='PDF',web='WEB',audio='AUDIO',video='VIDEO'})[view.kind] or 'VIEW'
+      left,left_width=capsule.format('GlowMediaInfo',compact and label:sub(1,1) or label,value)
+    end
+    local right,right_width={},0
+    local function add(group,label,key)
+      local text,size=capsule.format('GlowMedia'..group,label,key)
+      right_width=right_width+size+(#right>0 and 1 or 0);right[#right+1]=text
+    end
+    if view.kind=='pdf' or view.kind=='web' then
+      if controls==2 and view.kind=='pdf' then add('Action',compact and 'P' or 'PAGE','[p ]p') end
+      if controls>0 then add('Action',compact and 'Z' or 'ZOOM','+ − · 0') end
+      if controls==2 and view.kind=='web' then add('Menu',compact and 'R' or 'RELOAD','r') end
+    elseif controls>0 then
+      add('Action',compact and 'P' or 'PLAY','␣')
+      if controls==2 then add('Action',compact and 'S' or 'SEEK','h l');add('Action',compact and 'V' or 'VOL','+ −') end
+    end
+    if status.state=='error' then add('Menu',compact and 'R' or 'RETRY','r') end
+    add('Menu',compact and 'I' or 'FOCUS','i');add('Menu',compact and 'Q' or 'CLOSE','q')
+    return '%#GlowMediaBar# '..left..'%='..table.concat(right,' ')..' ',left_width+right_width+(show_status and 3 or 2)
+  end
+  for _,variant in ipairs({{false,true,2,true},{false,false,1,true},{true,false,1,true},{true,false,0,true},{true,false,0,false}}) do
+    local result,size=layout(unpack(variant))
+    if size<=width then return result end
+  end
+  return '%#GlowMediaMenuValue#q'
+end
 local function title(view)
   if not vim.api.nvim_win_is_valid(view.win) then return end
-  local status=view.status or {}
-  local state=states[status.state] or '正在加载…'
-  local extra=''
-  if view.kind=='pdf' then
-    extra=('  第 %d / %d 页  %.0f%%'):format(status.page or 0,status.pages or 0,(status.zoom or 1)*100)
-  elseif view.kind~='web' then extra=('  %.1f / %.1f s  音量 %d%%'):format(status.position or 0,status.duration or 0,math.floor((status.volume or 1)*100+.5)) end
-  local help=view.kind=='pdf' and ' [p/]p 翻页  +/− 缩放  0 适应  i 焦点  q 关闭 ' or view.kind=='web' and ' i 页面焦点  +/− 缩放  r 刷新  q 关闭 ' or ' Space 播放  h/l 跳转  +/− 音量  q 关闭 '
-  vim.wo[view.win].winbar=' '..view.title:gsub('%%','%%%%')..' · '..state..extra..'%=%<'..help
+  vim.wo[view.win].winbar=M.render_title(view,vim.api.nvim_win_get_width(view.win))
 end
 local function geometry(view)
   local pos=vim.api.nvim_win_get_position(view.win)
@@ -109,6 +145,7 @@ function M.on_status(id,json)
   if not view then return end
   local ok,status=pcall(vim.json.decode,json)
   if not ok or type(status)~='table' then return end
+  if view.kind=='pdf' and status.close_requested==true then M.close(id); return end
   local previous=view.status or {}
   view.status=status
   if view.kind=='pdf' and type(status.synctex)=='table' and status.synctex.seq~=view.inverse_seq then
@@ -192,8 +229,10 @@ function M.refresh_source(source)
   end
   schedule()
 end
-function M.close()
-  local v=current(); if not v then return end
+function M.close(id)
+  local v
+  if id~=nil then v=active[id] else v=current() end
+  if not v then return end
   dispose(v); views[v.win]=nil
   if vim.api.nvim_win_is_valid(v.win) then
     if #vim.api.nvim_tabpage_list_wins(0)>1 then vim.api.nvim_win_close(v.win,false)
@@ -261,11 +300,17 @@ end
 function M.setup()
   if configured then return end
   configured=true
+  capsule.refresh_colors()
   require('config.media.synctex').setup()
   for lhs,rhs in pairs({['<C-Tab>']='gt',['<C-S-Tab>']='gT'}) do
     if vim.fn.maparg(lhs,'n')=='' then vim.keymap.set('n',lhs,rhs,{silent=true,desc='切换 Neovim 标签页'}) end
   end
   local group=vim.api.nvim_create_augroup('GlowNativePreview',{clear=true})
+  local function refresh_colors()
+    capsule.refresh_colors();for _,view in pairs(views) do title(view) end
+  end
+  vim.api.nvim_create_autocmd('ColorScheme',{group=group,callback=refresh_colors})
+  vim.api.nvim_create_autocmd('User',{group=group,pattern='NvThemeReload',callback=refresh_colors})
   vim.api.nvim_create_autocmd({'BufWinEnter','BufWinLeave','WinEnter','WinClosed','WinResized','VimResized','WinScrolled','TabEnter'}, {group=group,callback=schedule})
   vim.api.nvim_create_autocmd({'TabLeave','VimLeavePre'},{group=group,callback=function()
     for _,v in pairs(views) do release(v) end

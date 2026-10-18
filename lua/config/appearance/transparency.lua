@@ -21,7 +21,7 @@ local surfaces = {
   'NoiceCmdlinePopupBorderSearch', 'NoiceConfirm', 'NoiceConfirmBorder', 'NoiceMini',
   'NoicePopupmenu', 'NoicePopupmenuBorder', 'NoiceSplit', 'NoiceSplitBorder',
   'LazyNormal', 'MasonNormal',
-  'WinSeparator', 'NeoTreeWinSeparator',
+  'NeoTreeWinSeparator',
   'AvanteSidebarNormal', 'AvanteSidebarWinSeparator', 'AvanteSidebarWinHorizontalSeparator',
   'AvantePromptInput', 'AvantePromptInputBorder', 'AvantePopupHint',
 }
@@ -72,10 +72,23 @@ local function apply(name, blend)
 end
 
 local function split_separators()
+  if vim.g.neovide_liquid_glass == true then
+    -- Ordinary split cells belong to the editor's base, not the tree panel.
+    -- A zero blend keeps Neovide's Normal-opacity path (currently 78%).
+    local base = vim.api.nvim_get_hl_by_id(vim.fn.hlID('Normal'), true)
+    if base.background then
+      local attributes = vim.api.nvim_get_hl_by_id(vim.fn.hlID('WinSeparator'), true)
+      local matched = vim.deepcopy(attributes)
+      matched.foreground, matched.background = base.background, base.background
+      matched.blend = base.blend or 0
+      if not vim.deep_equal(attributes, matched) then vim.api.nvim_set_hl(0, 'WinSeparator', matched) end
+      resolved_links.WinSeparator = nil
+    end
+  end
   local tree = vim.fn.hlID('NeoTreeNormal')
   local background = tree > 0 and vim.api.nvim_get_hl_by_id(tree, true).background
   if background then
-    for _, name in ipairs({ 'WinSeparator', 'NeoTreeWinSeparator', 'AvanteSidebarWinSeparator' }) do
+    for _, name in ipairs({ 'NeoTreeWinSeparator' }) do
       local id = vim.fn.hlID(name)
       if id > 0 then
         local attributes = vim.api.nvim_get_hl_by_id(id, true)
@@ -83,6 +96,26 @@ local function split_separators()
         matched.foreground, matched.background, matched.blend = background, background, material_blend
         if not vim.deep_equal(attributes, matched) then vim.api.nvim_set_hl(0, name, matched) end
         resolved_links[name] = nil
+      end
+    end
+  end
+  if vim.g.neovide_liquid_glass == true then
+    local panel = vim.api.nvim_get_hl(0, { name = 'AvanteSidebarNormal', link = false, create = false })
+    if panel.bg then
+      -- All blank cells around Avante's stacked panels share its own material.
+      -- Reversed title groups paint only the outer cap cell's background; their
+      -- accent foreground still belongs to the solid capsule.
+      for _, name in ipairs({ 'AvanteSidebarWinSeparator', 'AvanteSidebarWinHorizontalSeparator',
+        'AvanteReversedTitle', 'AvanteReversedSubtitle', 'AvanteReversedThirdTitle' }) do
+        if vim.fn.hlexists(name) == 1 then
+          local attrs = vim.api.nvim_get_hl(0, { name = name, link = false })
+          attrs.bg, attrs.blend = panel.bg, panel.blend or material_blend
+          if name:find('Separator', 1, true) then attrs.fg = panel.bg end
+          if not vim.deep_equal(attrs, vim.api.nvim_get_hl(0, { name = name, link = false })) then
+            vim.api.nvim_set_hl(0, name, attrs)
+          end
+          resolved_links[name] = nil
+        end
       end
     end
   end
@@ -96,6 +129,35 @@ local function split_separators()
   -- only, retaining their own eob, fold, lastline and other fill characters.
   for _, win in ipairs(vim.api.nvim_list_wins()) do
     if vim.api.nvim_win_get_config(win).relative == '' then
+      local buf = vim.api.nvim_win_get_buf(win)
+      if vim.g.neovide_liquid_glass == true and vim.bo[buf].buftype == ''
+        and not vim.bo[buf].filetype:match('^Avante') then
+        -- A glass sidebar extends its surface through the adjacent blank
+        -- separator. An opaque native PDF contributes no glass surface there,
+        -- so that boundary remains part of the left editor's Normal base.
+        local position = vim.api.nvim_win_get_position(win)
+        local right = position[2] + vim.api.nvim_win_get_width(win) + 1
+        local bottom = position[1] + vim.api.nvim_win_get_height(win)
+        local avante_right = false
+        for _, neighbour in ipairs(vim.api.nvim_tabpage_list_wins(vim.api.nvim_win_get_tabpage(win))) do
+          local other = vim.api.nvim_win_get_position(neighbour)
+          if vim.api.nvim_win_get_config(neighbour).relative == '' and other[2] == right
+            and other[1] < bottom and other[1] + vim.api.nvim_win_get_height(neighbour) > position[1]
+            and vim.bo[vim.api.nvim_win_get_buf(neighbour)].filetype:match('^Avante') then
+            avante_right = true; break
+          end
+        end
+        local kept, remapped = {}, false
+        for mapping in vim.wo[win].winhighlight:gmatch('[^,]+') do
+          if mapping == 'WinSeparator:AvanteSidebarWinSeparator' then remapped = true
+          else kept[#kept + 1] = mapping end
+        end
+        if avante_right then kept[#kept + 1] = 'WinSeparator:AvanteSidebarWinSeparator' end
+        if remapped or avante_right then
+          local value = table.concat(kept, ',')
+          if value ~= vim.wo[win].winhighlight then vim.wo[win].winhighlight = value end
+        end
+      end
       vim.api.nvim_win_call(win, function()
         if not blank(vim.opt_local.fillchars:get()) then vim.opt_local.fillchars:append(separator_chars) end
       end)
@@ -146,6 +208,7 @@ function M.setup()
   configured = true
   local group = vim.api.nvim_create_augroup('GlowBackgroundTransparency', { clear = true })
   vim.api.nvim_create_autocmd({ 'ColorScheme', 'VimEnter', 'WinNew', 'BufWinEnter' }, { group = group, callback = schedule })
+  vim.api.nvim_create_autocmd('OptionSet', { group = group, pattern = 'winhighlight', callback = schedule })
   vim.api.nvim_create_autocmd('User', {
     group = group, pattern = { 'NvThemeReload', 'LazyLoad', 'VeryLazy' }, callback = schedule,
   })

@@ -720,6 +720,7 @@ local function attach(buf)
   local path = vim.api.nvim_buf_get_name(buf)
   if not M.supports(path) then return end
   if not sessions[buf] then sessions[buf] = { buf = buf, path = path } end
+  require("config.media.runtime").ensure_notebook_writer(buf)
   vim.b[buf].glow_notebook_edit = true
   local function map(mode, keys, action, description)
     vim.keymap.set(mode, keys, action, { buffer = buf, silent = true, desc = description })
@@ -771,6 +772,61 @@ function M.resolve_path(path)
   return path
 end
 
+-- Choose an editable owner without replacing plugin panels or unlocking them.
+-- This helper has no Notebook session state, so it can also be hot-installed.
+function M.route_open(opts)
+  opts = opts or {}
+  local tab = vim.api.nvim_get_current_tabpage()
+  local function editable(win)
+    if not win or not vim.api.nvim_win_is_valid(win) or vim.api.nvim_win_get_tabpage(win) ~= tab
+      or vim.api.nvim_win_get_config(win).relative ~= "" or vim.wo[win].winfixbuf then return false end
+    local buf = vim.api.nvim_win_get_buf(win)
+    local kind, ft = vim.bo[buf].buftype, vim.bo[buf].filetype:lower()
+    -- A dashboard is a replaceable start page; keep its terminal animation
+    -- from surviving above an unnecessary new Notebook split.
+    if kind == "nofile" and not vim.bo[buf].modified
+      and (ft == "snacks_dashboard" or ft == "dashboard" or ft == "alpha") then return true end
+    return (kind == "" or kind == "acwrite") and not (ft:match("^avante") or ft:match("^neo%-tree")
+      or ft:match("^glow_") or ft:match("^snacks_") or ft == "dashboard" or ft == "alpha"
+      or ft == "trouble" or ft == "notify")
+  end
+  local target
+  for _, win in ipairs({ opts.win or 0, vim.api.nvim_get_current_win(), vim.fn.win_getid(vim.fn.winnr("#")) }) do
+    if editable(win) then target = win; break end
+  end
+  if not target then
+    for _, win in ipairs(vim.api.nvim_tabpage_list_wins(tab)) do
+      if editable(win) then target = win; break end
+    end
+  end
+  if target then vim.api.nvim_set_current_win(target)
+  else
+    -- A split must start from a normal window even when every such window is
+    -- locked; it creates a separate owner instead of replacing that buffer.
+    for _, win in ipairs(vim.api.nvim_tabpage_list_wins(tab)) do
+      if vim.api.nvim_win_get_config(win).relative == "" then vim.api.nvim_set_current_win(win); break end
+    end
+  end
+  local command = opts.command
+  if not command or command == "" then
+    command = not target and (opts.fallback_command or "rightbelow vnew") or nil
+  end
+  if command then
+    local before = {}
+    for _, win in ipairs(vim.api.nvim_list_wins()) do before[win] = true end
+    vim.cmd(command)
+    local win = vim.api.nvim_get_current_win()
+    -- :split may copy winfixbuf from an otherwise unavoidable locked base.
+    -- Only the newly created destination belongs to this open operation.
+    if not before[win] then vim.wo[win].winfixbuf = false end
+  end
+  local win = vim.api.nvim_get_current_win()
+  if vim.wo[win].winfixbuf or vim.api.nvim_win_get_config(win).relative ~= "" then
+    error("无法找到可编辑的 Notebook 窗口。", 0)
+  end
+  return win
+end
+
 function M.open(path, opts)
   opts = opts or {}
   if not M.supports(path) then notify("请选择 .ipynb 文件。"); return false end
@@ -778,10 +834,14 @@ function M.open(path, opts)
   path = M.resolve_path(path)
   if vim.fn.filereadable(path) ~= 1 then notify("无法读取 Notebook：" .. path); return false end
   if not require("config.media.runtime").ready() then notify("Notebook 运行环境尚未安装，请先执行配套安装脚本。"); return false end
+  local valid, reason = pcall(require("config.media.runtime").read_notebook, path)
+  if not valid then notify("无法打开 Notebook：" .. tostring(reason), vim.log.levels.ERROR); return false end
   local ok, err = pcall(function()
-    if opts.win and vim.api.nvim_win_is_valid(opts.win) then vim.api.nvim_set_current_win(opts.win) end
-    if opts.command then vim.cmd(opts.command) end
+    M.route_open(opts)
     execute("edit", { path })
+    if not require("config.media.runtime").complete_notebook_load(vim.api.nvim_get_current_buf()) then
+      error("Notebook 尚未读入 percent 源码，请重新打开文件。", 0)
+    end
     attach(vim.api.nvim_get_current_buf())
   end)
   if not ok then notify("无法打开 Notebook：" .. tostring(err), vim.log.levels.ERROR); return false end
@@ -790,10 +850,10 @@ end
 
 function M.from_tree(event)
   if not M.supports(event.path) then return end
-  local win, is_tree = require("neo-tree.utils").get_appropriate_window(event.state)
+  local win = require("neo-tree.utils").get_appropriate_window(event.state)
   local command = ({ split = "split", sp = "split", vsplit = "vsplit", vs = "vsplit", tabnew = "tabnew", tabedit = "tabnew" })[event.open_cmd or "edit"]
-  if not command and is_tree then command = event.state.current_position == "right" and "leftabove vnew" or "rightbelow vnew" end
-  M.open(event.path, { win = win, command = command })
+  M.open(event.path, { win = win, command = command,
+    fallback_command = event.state.current_position == "right" and "leftabove vnew" or "rightbelow vnew" })
   return { handled = true }
 end
 

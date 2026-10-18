@@ -28,6 +28,9 @@ function M.apply()
     require("config.appearance.ui").apply()
     require("config.appearance.completion").apply()
     require("config.appearance.fff").apply()
+    -- Finish the material after the integration replay has set its final RGB.
+    -- This also covers nested Avante ColorScheme resets without polling.
+    require("config.appearance.transparency").apply()
 
     -- Recompute faded edge groups on existing visible trees without navigation.
     local manager = package.loaded["neo-tree.sources.manager"]

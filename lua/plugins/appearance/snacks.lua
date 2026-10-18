@@ -192,11 +192,13 @@ return {
           Snacks.toggle.indent():map("<leader>ug")
           Snacks.toggle.dim():map("<leader>uD")
           if vim.g.neovide then
+            -- uG belongs to LazyVim's Git Signs, including its later lazy load.
             Snacks.toggle.new({
-              name = "Glow",
+              id = "glow",
+              name = "Glow 柔光",
               get = function() return vim.g.neovide_bloom ~= false end,
               set = function(enabled) vim.g.neovide_bloom = enabled end,
-            }):map("<leader>uG")
+            }):map("<leader>uB")
           end
         end,
       })
