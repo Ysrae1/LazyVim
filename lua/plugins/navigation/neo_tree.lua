@@ -43,6 +43,7 @@ return {
         event_handlers = {
           { event = "file_open_requested", handler = function(event)
             return require("config.media.image").from_tree(event)
+              or require("config.media.preview").from_tree(event)
           end },
         },
         close_if_last_window = false, -- Close Neo-tree if it is the last window left in the tab
