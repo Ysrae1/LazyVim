@@ -4,6 +4,7 @@ local M = { border_labels = true }
 local states, windows, configured, pending, previous, timer = {}, {}, false, false, nil, nil
 local api = vim.api
 local padding_ns = api.nvim_create_namespace('glow.notebook.layout')
+local separator_ns = api.nvim_create_namespace('glow.notebook.separator')
 local metadata_ns = api.nvim_create_namespace('glow.notebook.metadata')
 local markers_ns = api.nvim_create_namespace('glow.notebook.markers')
 local molten_ns = api.nvim_create_namespace('molten-extmarks')
@@ -159,8 +160,9 @@ local function prepare(buf, state)
     state.layout = copy(signature)
     state.revision = (state.revision or 0) + 1
     api.nvim_buf_clear_namespace(buf, padding_ns, 0, -1)
+    api.nvim_buf_clear_namespace(buf, separator_ns, 0, -1)
     api.nvim_buf_clear_namespace(buf, markers_ns, 0, -1)
-    state.top_marks, state.label_signature = {}, nil
+    state.top_marks, state.label_signature, state.separator_cells = {}, nil, {}
     local count = api.nvim_buf_line_count(buf)
     for index, cell in ipairs(list) do
       local first = cell_start(cell, count, state.show_metadata)
@@ -170,15 +172,25 @@ local function prepare(buf, state)
         })
       end
       local last = math.max(first, cell.last)
-      local has_output = false
+      local first_output
       for _, item in ipairs(out) do
-        if item.row + 1 >= first and item.row + 1 <= math.max(last, cell.finish) then has_output = true; break end
+        if item.row + 1 >= math.max(1, cell.header > 0 and cell.header or first)
+            and item.row + 1 <= cell.finish then first_output = item; break end
       end
       local mark = api.nvim_buf_set_extmark(buf, padding_ns, first - 1, 0, {
         virt_lines = { copy(blank) }, virt_lines_above = true, right_gravity = false, strict = false,
       })
       state.top_marks[index] = { id = mark, row = first - 1 }
-      if not has_output then
+      if first_output then
+        -- Left gravity sorts this independent row before Molten's right-gravity
+        -- mark at the same anchor, even when Molten recreates its mark each tick.
+        -- Molten's original virtual lines and their height are never rewritten.
+        local separator = api.nvim_buf_set_extmark(buf, separator_ns, first_output.row, 0, {
+          virt_lines = { copy(blank) }, virt_lines_above = first_output.above,
+          right_gravity = false, strict = false,
+        })
+        state.separator_cells[separator] = index
+      else
         api.nvim_buf_set_extmark(buf, padding_ns, last - 1, 0, {
           virt_lines = { copy(blank) }, right_gravity = false, strict = false,
         })
@@ -332,7 +344,9 @@ local function normal_frames(win, buf, list, out, frames)
     if d.virt_lines and not d.invalid then
       local offsets = d.virt_lines_above and offset_above or offset_below
       local offset = offsets[row] or 0
-      if d.ns_id == molten_ns and wanted[mark[1]] then
+      local output = d.ns_id == molten_ns and wanted[mark[1]]
+      local separator = d.ns_id == separator_ns and state.separator_cells[mark[1]]
+      if output or separator then
         local top = row_at(row + 1)
         if d.virt_lines_above then
           local total = 0
@@ -342,17 +356,19 @@ local function normal_frames(win, buf, list, out, frames)
           top = top - total
         else top = top + line_height(row + 1) end
         top = top + offset
-        -- A cell owns outputs by their source anchor, never by mark identity or
-        -- screen overlap. Several marks extend the same outer envelope in their
-        -- real display order; they do not create neighboring rounded boxes.
-        for index, cell in ipairs(list) do
-          if row + 1 >= math.max(1, cell.header > 0 and cell.header or cell.first)
-              and row + 1 <= cell.finish then
-            local rect = outer[index].rect
-            local bottom = math.max(rect.row + rect.height, top + #d.virt_lines + 0.2)
-            rect.height = bottom - rect.row
-            dividers[index] = math.min(dividers[index] or top, top - 0.05)
-            break
+        if separator then dividers[separator] = top + 0.5
+        else
+          -- A cell owns outputs by their source anchor, never by mark identity or
+          -- screen overlap. Several marks extend the same outer envelope in their
+          -- real display order; they do not create neighboring rounded boxes.
+          for index, cell in ipairs(list) do
+            if row + 1 >= math.max(1, cell.header > 0 and cell.header or cell.first)
+                and row + 1 <= cell.finish then
+              local rect = outer[index].rect
+              local bottom = math.max(rect.row + rect.height, top + #d.virt_lines + 0.2)
+              rect.height = bottom - rect.row
+              break
+            end
           end
         end
       end
