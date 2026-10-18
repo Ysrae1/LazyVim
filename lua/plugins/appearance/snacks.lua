@@ -156,6 +156,11 @@ return {
       },
     },
 
+    config = function(_, opts)
+      require("snacks").setup(opts)
+      require("config.appearance.snacks.statuscolumn").setup()
+    end,
+
     init = function()
       vim.api.nvim_create_user_command("Dashboard", function()
         Snacks.dashboard.open()

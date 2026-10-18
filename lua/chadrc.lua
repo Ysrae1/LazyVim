@@ -60,50 +60,7 @@ M.ui = {
     modules = {
 
       ntreeOffset = function()
-        local strep = string.rep
-
-        local function getNeoTreeWidth()
-          for _, win in pairs(vim.api.nvim_tabpage_list_wins(0)) do
-            if vim.bo[vim.api.nvim_win_get_buf(win)].ft == "neo-tree" then
-              return vim.api.nvim_win_get_width(win)
-            end
-          end
-          return 0
-        end
-
-        local w = getNeoTreeWidth()
-
-        local function get_os_name()
-          local sysname = vim.loop.os_uname().sysname
-          return sysname
-        end
-        local function getNeoTreeTitle()
-          local sysname = get_os_name()
-          if sysname == "Darwin" then
-            return "   File Explorer" -- macOS 图标
-          elseif sysname == "Linux" then
-            return "   File Explorer" -- Linux 图标
-          elseif sysname == "Windows_NT" then
-            return "   File Explorer" -- Windows 图标
-          else
-            return "  File Explorer" -- 默认文本
-          end
-        end
-
-        local neo_tree_title = getNeoTreeTitle()
-        local len_title = #neo_tree_title - 2
-
-        local function deftitle()
-          if w <= len_title then
-            return string.sub(neo_tree_title, 0, w)
-          else
-            return neo_tree_title .. strep(" ", w - len_title)
-          end
-        end
-
-        local defdtitle = deftitle()
-
-        return w == 0 and "" or "%#NeoTreeNormal#" .. defdtitle .. "%#NeoTreeWinSeparator#" .. "│"
+        return require("config.appearance.tree_title").get()
       end,
 
       btns = function()

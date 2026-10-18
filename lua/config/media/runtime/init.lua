@@ -123,9 +123,35 @@ function M.configure_jupytext()
   })
 end
 
+local adapter_path = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":h") .. "/glow_molten_output.py"
+
+function M.configure_output_adapter()
+  local registered = vim.fn["remote#host#PluginsForHost"]("python3")
+  for _, plugin in ipairs(registered) do
+    if plugin.path == adapter_path then return end
+  end
+  if vim.fn["remote#host#IsRunning"]("python3") ~= 0 then
+    vim.notify("Notebook output colors require a new editor session: the Python host is already running.", vim.log.levels.WARN)
+    return
+  end
+  vim.fn["remote#host#RegisterPlugin"]("python3", adapter_path, {
+    { type = "function", name = "GlowNotebookOutputAdapterInfo", sync = 1, opts = vim.empty_dict() },
+  })
+  local group = vim.api.nvim_create_augroup("GlowNotebookOutputAdapter", { clear = true })
+  vim.api.nvim_create_autocmd("User", { group = group, pattern = "MoltenInitPost", once = true, callback = function()
+    vim.schedule(function()
+      local ok, info = pcall(vim.fn.GlowNotebookOutputAdapterInfo)
+      if not ok or not info.active then
+        vim.notify("Notebook output colors unavailable: " .. tostring(ok and info.error or info), vim.log.levels.ERROR)
+      end
+    end)
+  end })
+end
+
 function M.configure_molten()
   require("config.media.notebook_highlights").setup()
   M.prepare_host()
+  M.configure_output_adapter()
   vim.g.molten_auto_init_behavior = "raise"
   vim.g.molten_auto_open_output = false
   vim.g.molten_virt_text_output = true

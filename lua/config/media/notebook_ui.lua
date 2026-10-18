@@ -16,10 +16,16 @@ local function available()
   return vim.g.neovide_native_notebook == true and type(vim.g.neovide_channel_id) == 'number'
 end
 local function copy(value) return vim.deepcopy(value) end
-local function emit(frames)
-  if available() and not vim.deep_equal(previous, frames) then
-    previous = copy(frames)
-    pcall(vim.rpcnotify, vim.g.neovide_channel_id, 'neovide.notebook.frames', frames)
+local function emit(frames, viewports)
+  viewports = viewports or {}
+  local snapshot = { frames, viewports }
+  if available() and not vim.deep_equal(previous, snapshot) then
+    previous = copy(snapshot)
+    if vim.g.neovide_native_notebook_viewport == true then
+      pcall(vim.rpcnotify, vim.g.neovide_channel_id, 'neovide.notebook.frames', frames, viewports)
+    else
+      pcall(vim.rpcnotify, vim.g.neovide_channel_id, 'neovide.notebook.frames', frames)
+    end
     -- Local redraw supplies the matching UI flush after this notification. It
     -- never requests or waits for anything from Neovide, including during scroll.
     pcall(vim.cmd.redraw)
@@ -237,7 +243,7 @@ local function window_geometry(win, outer)
       width = config.width + border_left + border_right,
       height = config.height + border_top + border_bottom }, info
   end
-  return { row = top, col = left, width = info.width, height = info.height }, info
+  return { row = top, col = left, width = api.nvim_win_get_width(win), height = info.height }, info
 end
 local function line_geometry(win, info, clip)
   local saved = api.nvim_win_call(win, vim.fn.winsaveview)
@@ -302,7 +308,9 @@ local function normal_frames(win, buf, list, out, frames)
         col = (info.textoff or 0) + gap.col - frame.rect.col - 0.1, width = gap.width + 0.2 }
     end
   end
-  local key = { state.revision, state.metadata, clip.width, clip.height, info.textoff,
+  local markdown = package.loaded['config.media.notebook_markdown']
+  local markdown_revision = markdown and markdown.presentation_revision(buf) or 0
+  local key = { state.revision, state.metadata, markdown_revision, clip.width, info.width, clip.height, info.textoff,
     info.winbar, vim.wo[win].wrap, vim.wo[win].foldlevel, vim.wo[win].foldenable }
   if vim.deep_equal(key, cached.model_key) then
     for _, frame in ipairs(cached.frames) do
@@ -411,11 +419,12 @@ function M.refresh()
       windows[win] = nil
     end
   end
-  local frames, prepared, notebook_visible = {}, {}, false
+  local frames, viewports, prepared, notebook_visible = {}, {}, {}, false
   for _, win in ipairs(api.nvim_tabpage_list_wins(0)) do
     local buf = api.nvim_win_get_buf(win)
     if states[buf] and api.nvim_win_get_config(win).relative == '' then
       notebook_visible = true
+      viewports[#viewports + 1] = { window = win, width = api.nvim_win_get_width(win) }
       if not prepared[buf] then prepared[buf] = { prepare(buf, states[buf]) } end
       normal_frames(win, buf, prepared[buf][1], prepared[buf][2], frames)
     end
@@ -448,7 +457,7 @@ function M.refresh()
   for win in pairs(popup_models) do
     if not api.nvim_win_is_valid(win) then popup_models[win] = nil end
   end
-  emit(frames)
+  emit(frames, viewports)
   return frames
 end
 local function schedule()

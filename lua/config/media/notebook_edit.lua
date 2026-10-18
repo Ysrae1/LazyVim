@@ -95,13 +95,13 @@ function M.label_chunks(kind, language, playing)
     -- This font's Material Design symbols share the capsule caps' ink center;
     -- generic Unicode play/return fell back to fonts with different baselines.
     vim.list_extend(chunks, { { "", "GlowNotebookRunCap" },
-      { " " .. (playing and "󰐊" or "󰼛") .. " ", "GlowNotebookRun" },
-      { " 󰘶󰌑 ", "GlowNotebookRunValue" }, { "", "GlowNotebookRunValueCap" },
+      { (playing and "󰐊" or "󰼛") .. " ", "GlowNotebookRun" },
+      { " 󰘶󰌑", "GlowNotebookRunValue" }, { "", "GlowNotebookRunValueCap" },
       { "   ", "GlowNotebookBar" } })
   end
   -- Keep the type capsule last so all cell kinds align at the right edge.
   vim.list_extend(chunks, { { "", group .. "Cap" },
-    { " " .. label_icons[filetype] .. " ", group }, { "", group .. "Cap" } })
+    { label_icons[filetype], group }, { "", group .. "Cap" } })
   return chunks
 end
 
@@ -284,11 +284,22 @@ end
 
 local function capsule(group, label, value)
   local body = "%#GlowNotebook" .. group .. "Value# "
+  local text = ""
   if type(value) == "table" then
-    for _, part in ipairs(value) do body = body .. "%#" .. part[2] .. "#" .. part[1]:gsub("%%", "%%%%") end
-  else body = body .. value:gsub("%%", "%%%%") end
-  return "%#GlowNotebook" .. group .. "Cap#%#GlowNotebook" .. group .. "# " .. label .. " " .. body
-    .. " %#GlowNotebook" .. group .. "ValueCap#%#GlowNotebookBar#"
+    local trimmed, tail = {}, true
+    for index = #value, 1, -1 do
+      local part = value[index][1]
+      if tail then part = part:gsub("%s+$", ""); tail = part == "" end
+      trimmed[index] = part
+    end
+    for index, part in ipairs(value) do
+      body = body .. "%#" .. part[2] .. "#" .. trimmed[index]:gsub("%%", "%%%%")
+      text = text .. trimmed[index]
+    end
+  else text = value:gsub("%s+$", ""); body = body .. text:gsub("%%", "%%%%") end
+  return "%#GlowNotebook" .. group .. "Cap#%#GlowNotebook" .. group .. "#" .. label .. " " .. body
+    .. "%#GlowNotebook" .. group .. "ValueCap#%#GlowNotebookBar#",
+    vim.fn.strdisplaywidth("" .. label .. "  " .. text .. "")
 end
 
 -- Pure formatting keeps long names bounded without starting or querying a
@@ -304,11 +315,14 @@ function M.render_title(session, width)
   local cells_label, menu_label = width < 56 and "C" or "CELLS", width < 56 and "M" or "MENU"
   local previous, following, gap = compact and "[c" or "↑ [c", compact and "]c" or "↓ ]c", compact and "  " or "   "
   local menu = prefix .. "j"
-  local right_width = vim.fn.strdisplaywidth(cells_label .. previous .. gap .. following .. menu_label .. menu) + 13
-  status = fit_text(status, math.max(1, width - right_width - #kernel_label - 9))
+  local cells, cells_width = capsule("Cells", cells_label,
+    { { previous, "GlowNotebookPrev" }, { gap, "GlowNotebookCellsValue" }, { following, "GlowNotebookNext" } })
+  local menu_capsule, menu_width = capsule("Menu", menu_label, menu)
+  local _, kernel_width = capsule("Kernel", kernel_label, "")
+  local outer_spacing = vim.fn.strdisplaywidth(" " .. " " .. " ")
+  status = fit_text(status, math.max(1, width - cells_width - menu_width - kernel_width - outer_spacing))
   return "%#GlowNotebookBar# " .. capsule("Kernel", kernel_label, status) .. "%="
-    .. capsule("Cells", cells_label, { { previous, "GlowNotebookPrev" }, { gap, "GlowNotebookCellsValue" }, { following, "GlowNotebookNext" } })
-    .. " " .. capsule("Menu", menu_label, menu) .. " "
+    .. cells .. " " .. menu_capsule .. " "
 end
 
 local function title(buf)
@@ -534,7 +548,15 @@ local function run_cells(all)
   end, requested)
 end
 
-function M.run() run_cells(false) end
+function M.run()
+  local buf = vim.api.nvim_get_current_buf()
+  local cell = current_cell(buf)
+  if cell and cell.kind == "markdown" then
+    require("config.media.notebook_markdown").refresh(buf)
+    return
+  end
+  run_cells(false)
+end
 function M.run_all() run_cells(true) end
 
 function M.jump(direction)
@@ -719,6 +741,7 @@ local function attach(buf)
   if ok then which_key.add({ { "<leader>j", group = "Jupyter Notebook", icon = "", buffer = buf } }) end
   local ui_ok, ui = pcall(require, "config.media.notebook_ui")
   if ui_ok then ui.setup(); ui.attach(buf) end
+  require("config.media.notebook_markdown").attach(buf)
   decorate(buf)
   title(buf)
 end

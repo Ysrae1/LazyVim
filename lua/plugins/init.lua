@@ -20,6 +20,7 @@ return {
   { import = "plugins.editor.multicursors" },
   { import = "plugins.navigation.neo_tree" },
   { import = "plugins.appearance.noice" },
+  { import = "plugins.appearance.notebook_markdown" },
   { import = "plugins.languages.none_ls" },
   { import = "plugins.tools.nvim_dap" },
   { import = "plugins.languages.peek" },
