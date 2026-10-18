@@ -124,6 +124,7 @@ function M.configure_jupytext()
 end
 
 function M.configure_molten()
+  require("config.media.notebook_highlights").setup()
   M.prepare_host()
   vim.g.molten_auto_init_behavior = "raise"
   vim.g.molten_auto_open_output = false

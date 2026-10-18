@@ -8,6 +8,7 @@ local metadata_ns = api.nvim_create_namespace('glow.notebook.metadata')
 local markers_ns = api.nvim_create_namespace('glow.notebook.markers')
 local molten_ns = api.nvim_create_namespace('molten-extmarks')
 local blank = { { '', 'Normal' } }
+local right_inset = 1
 local next_epoch, popup_models = 0, {}
 
 local function available()
@@ -37,9 +38,10 @@ local function is_output(lines)
 end
 local function outputs(buf)
   local result = {}
+  local count = api.nvim_buf_line_count(buf)
   for _, mark in ipairs(api.nvim_buf_get_extmarks(buf, molten_ns, 0, -1, { details = true })) do
     local lines = mark[4].virt_lines
-    if lines and is_output(lines) then
+    if mark[2] >= 0 and mark[2] < count and not mark[4].invalid and lines and is_output(lines) then
       -- Molten is the sole writer of its output. While running it replaces this
       -- mark every tick; adding padding here used to make its height oscillate.
       result[#result + 1] = { id = mark[1], row = mark[2], lines = #lines,
@@ -92,7 +94,7 @@ local function top_labels(buf, state, editor)
     if api.nvim_win_get_config(win).relative == '' then
       local info = vim.fn.getwininfo(win)[1]
       if info then
-        local width = info.width - math.max(2, info.textoff)
+        local width = info.width - math.max(2, info.textoff) - right_inset
         columns = math.min(columns or width, width)
       end
     end
@@ -100,7 +102,8 @@ local function top_labels(buf, state, editor)
   local labels = editor.cell_labels and editor.cell_labels(buf) or {}
   local signature = { columns, labels }
   state.accent = api.nvim_get_hl(0, { name = 'GlowNotebookCell', link = false }).bg
-    or (vim.o.background == 'dark' and 0xdfa95b or 0xad732a)
+    or editor.cell_accent()
+  state.output_accent = editor.output_accent()
   if vim.deep_equal(signature, state.label_signature) then return end
   state.label_signature, state.label_gaps = copy(signature), {}
   for _, mark in pairs(state.top_marks) do
@@ -226,7 +229,11 @@ local function window_geometry(win, outer)
 end
 local function line_geometry(win, info, clip)
   local saved = api.nvim_win_call(win, vim.fn.winsaveview)
-  local ref = info.topline
+  local count = api.nvim_buf_line_count(api.nvim_win_get_buf(win))
+  -- BufWinEnter can observe a reload's short intermediate buffer while its
+  -- viewport/old output marks still describe the previous text generation.
+  local function bounded(line) return math.max(1, math.min(line, count)) end
+  local ref = bounded(info.topline)
   -- Screenpos can still describe the previous screen immediately after virtual
   -- rows change. Text-height + the saved viewport is the logical grid model and
   -- is valid before redraw as well as while the native spring is still moving.
@@ -238,6 +245,7 @@ local function line_geometry(win, info, clip)
   local ref_row = clip.row + (saved.topfill or 0) - skipped
   local cache = {}
   local function text_row(line)
+    line = bounded(line)
     if cache[line] then return cache[line] end
     local a, b = math.min(ref, line), math.max(ref, line)
     local distance = 0
@@ -249,6 +257,7 @@ local function line_geometry(win, info, clip)
     return row
   end
   local function text_height(line)
+    line = bounded(line)
     return api.nvim_win_text_height(win, { start_row = line - 1, start_vcol = 0, end_row = line - 1 }).all
   end
   return text_row, text_height
@@ -272,7 +281,7 @@ local function normal_frames(win, buf, list, out, frames)
   end
   local cached = windows[win]
   local function style(frame)
-    if frame.kind ~= 'input' then return end
+    if frame.kind ~= 'input' then frame.color = state.output_accent; return end
     frame.color = state.accent
     frame.label_gaps = nil
     for _, gap in ipairs(state.label_gaps and state.label_gaps[frame.cell] or {}) do
@@ -286,7 +295,8 @@ local function normal_frames(win, buf, list, out, frames)
   if vim.deep_equal(key, cached.model_key) then
     for _, frame in ipairs(cached.frames) do
       local item = copy(frame)
-      item.active = item.kind == 'input' and item.cell == selected and win == api.nvim_get_current_win()
+      item.active = (item.kind == 'input' or item.join == 'bottom')
+        and item.cell == selected and win == api.nvim_get_current_win()
       item.dark = vim.o.background == 'dark'
       style(item)
       frames[#frames + 1] = item
@@ -299,19 +309,18 @@ local function normal_frames(win, buf, list, out, frames)
   local text_left = clip.col + (info.textoff or 0)
   -- Leave line numbers untouched: the stroke lives in the gap at their right.
   local left = math.max(clip.col + 0.12, text_left - 0.8)
-  local width = clip.col + clip.width - 0.12 - left
+  local width = clip.col + clip.width - right_inset - 0.12 - left
+  local outer, dividers = {}, {}
   for index, cell in ipairs(list) do
     local first = cell_start(cell, api.nvim_buf_line_count(buf), state.show_metadata)
     local last = math.max(first, cell.last)
-    local has_output = false
-    for _, item in ipairs(out) do
-      if item.row + 1 >= math.max(1, cell.header) and item.row + 1 <= cell.finish then has_output = true; break end
-    end
     local top = row_at(first) - 0.5 -- center the stroke on the label's virtual row
-    local bottom = row_at(last) + line_height(last) + (has_output and -0.05 or 0.4)
+    local bottom = row_at(last) + line_height(last) + 0.4
     local rect = { row = top, col = left, width = width, height = math.max(1, bottom - top) }
-    frames[#frames + 1] = { kind = 'input', cell = index, rect = rect, clip = clip,
+    local frame = { kind = 'input', cell = index, rect = rect, clip = clip,
       active = index == selected and win == api.nvim_get_current_win(), dark = vim.o.background == 'dark' }
+    outer[index] = frame
+    frames[#frames + 1] = frame
   end
   -- Traverse the actual marks in rendering order, including other plugins' rows.
   -- This avoids guessing the location from output text length or mark IDs.
@@ -333,10 +342,31 @@ local function normal_frames(win, buf, list, out, frames)
           top = top - total
         else top = top + line_height(row + 1) end
         top = top + offset
-        local rect = { row = top + 0.05, col = left, width = width, height = #d.virt_lines - 0.1 }
-        frames[#frames + 1] = { kind = 'output', rect = rect, clip = clip, active = false, dark = vim.o.background == 'dark' }
+        -- A cell owns outputs by their source anchor, never by mark identity or
+        -- screen overlap. Several marks extend the same outer envelope in their
+        -- real display order; they do not create neighboring rounded boxes.
+        for index, cell in ipairs(list) do
+          if row + 1 >= math.max(1, cell.header > 0 and cell.header or cell.first)
+              and row + 1 <= cell.finish then
+            local rect = outer[index].rect
+            local bottom = math.max(rect.row + rect.height, top + #d.virt_lines + 0.2)
+            rect.height = bottom - rect.row
+            dividers[index] = math.min(dividers[index] or top, top - 0.05)
+            break
+          end
+        end
       end
       offsets[row] = offset + #d.virt_lines
+    end
+  end
+  for index in ipairs(list) do
+    if dividers[index] then
+      local input, joint = outer[index], dividers[index]
+      local bottom = input.rect.row + input.rect.height
+      input.rect.height, input.join = joint - input.rect.row, 'top'
+      frames[#frames + 1] = { kind = 'output', join = 'bottom', cell = index,
+        rect = { row = joint, col = left, width = width, height = bottom - joint },
+        clip = clip, active = input.active, dark = vim.o.background == 'dark' }
     end
   end
   -- Freeze document layout in owner-local coordinates. Wheel scrolling updates
@@ -393,7 +423,8 @@ function M.refresh()
           frames[#frames + 1] = { kind = 'output', overlay = true,
             rect = { row = local_clip.row + 0.08, col = local_clip.col + 0.12, width = clip.width - 0.24, height = clip.height - 0.16 },
             clip = local_clip, anchor = { window = win, epoch = model.epoch, scroll = false },
-            active = win == api.nvim_get_current_win(), dark = vim.o.background == 'dark' }
+            active = win == api.nvim_get_current_win(), dark = vim.o.background == 'dark',
+            color = require('config.media.notebook_edit').output_accent() }
         end
       end
     end

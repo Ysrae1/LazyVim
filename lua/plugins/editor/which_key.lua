@@ -1,6 +1,7 @@
 return {
   "folke/which-key.nvim",
   opts = {
+    icons = { separator = "󰁔" },
     spec = {
       { "<leader>t", group = "telescope and toggles" },
       { "<leader>v", group = "python venv selector", icon = "" }, -- group-- group

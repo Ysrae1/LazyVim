@@ -90,12 +90,18 @@ function M.label_chunks(kind, language, playing)
     label_icons[filetype] = icon or ({ python = "", markdown = "", text = "" })[filetype] or ""
   end
   local group = kind == "markdown" and "GlowNotebookMarkdown" or kind == "raw" and "GlowNotebookRaw" or "GlowNotebookLanguage"
-  local chunks = { { "", group .. "Cap" }, { " " .. label_icons[filetype] .. " ", group }, { "", group .. "Cap" } }
+  local chunks = {}
   if kind == "code" then
-    vim.list_extend(chunks, { { "   ", "GlowNotebookBar" }, { "", "GlowNotebookRunCap" },
-      { " " .. (playing and "▶" or "▷") .. " ", "GlowNotebookRun" },
-      { " (⇧↵) ", "GlowNotebookRunValue" }, { "", "GlowNotebookRunValueCap" } })
+    -- This font's Material Design symbols share the capsule caps' ink center;
+    -- generic Unicode play/return fell back to fonts with different baselines.
+    vim.list_extend(chunks, { { "", "GlowNotebookRunCap" },
+      { " " .. (playing and "󰐊" or "󰼛") .. " ", "GlowNotebookRun" },
+      { " 󰘶󰌑 ", "GlowNotebookRunValue" }, { "", "GlowNotebookRunValueCap" },
+      { "   ", "GlowNotebookBar" } })
   end
+  -- Keep the type capsule last so all cell kinds align at the right edge.
+  vim.list_extend(chunks, { { "", group .. "Cap" },
+    { " " .. label_icons[filetype] .. " ", group }, { "", group .. "Cap" } })
   return chunks
 end
 
@@ -181,9 +187,28 @@ function M.leader_label()
   return leader == " " and "␣" or vim.fn.keytrans(leader)
 end
 
+local function theme_color(kind, key)
+  local ok, palette = pcall(function() return require("base46").get_theme_tb(kind) end)
+  local color = ok and palette and palette[key]
+  if type(color) == "string" then color = tonumber(color:gsub("^#", ""), 16) end
+  if type(color) == "number" then return color end
+end
+
+local function theme_cell_accent()
+  local color = theme_color("base_16", "base0D")
+  if color then return color end
+  local defined = vim.api.nvim_get_hl(0, { name = "Function", link = false, create = false })
+  return defined.fg or (vim.o.background == "dark" and 0x96d7f3 or 0x55b4d4)
+end
+
 function M.cell_accent()
   local group = vim.api.nvim_get_hl(0, { name = "GlowNotebookCell", link = false, create = false })
-  return group.bg or (vim.o.background == "dark" and 0xdfa95b or 0xad732a)
+  return group.bg or theme_cell_accent()
+end
+
+function M.output_accent()
+  return theme_color("base_30", "vibrant_green")
+    or (vim.o.background == "dark" and 0xb5f297 or 0x94e76b)
 end
 
 function M.refresh_title_colors()
@@ -191,6 +216,8 @@ function M.refresh_title_colors()
     return vim.api.nvim_get_hl(0, { name = name, link = false, create = false })
   end
   local normal = highlight("Normal")
+  local solid_ink = highlight("St_NormalMode").fg or theme_color("base_30", "black")
+    or normal.bg or (vim.o.background == "dark" and 0x0b0e14 or 0xfafafa)
   vim.api.nvim_set_hl(0, "GlowNotebookBar", { fg = normal.fg, bg = "NONE" })
   local dark = vim.o.background == "dark"
   local surface = dark and (highlight("St_file_txt").bg or highlight("NormalFloat").bg or normal.bg or 0x20242b) or 0xffffff
@@ -221,10 +248,11 @@ function M.refresh_title_colors()
   }) do
     local source, fallback = highlight(palette[2]), highlight(palette[3])
     if not source.bg and palette[4] then source = highlight(palette[4]) end
-    local accent = on_surface(source.bg or fallback.fg or normal.fg)
+    local accent = palette[1] == "Cells" and theme_color("base_16", "base0B")
+      or on_surface(source.bg or fallback.fg or normal.fg)
     accents[palette[1]] = accent
     local group = "GlowNotebook" .. palette[1]
-    vim.api.nvim_set_hl(0, group, { fg = 0xffffff, bg = accent, bold = true })
+    vim.api.nvim_set_hl(0, group, { fg = solid_ink, bg = accent, bold = true })
     vim.api.nvim_set_hl(0, group .. "Value", { fg = accent, bg = surface, bold = false })
     -- One segmented capsule: accent label, adaptive value, transparent outer ends.
     vim.api.nvim_set_hl(0, group .. "Cap", { fg = accent, bg = "NONE" })
@@ -232,10 +260,10 @@ function M.refresh_title_colors()
   end
   vim.api.nvim_set_hl(0, "GlowNotebookPrev", { fg = accents.Cells, bg = surface })
   vim.api.nvim_set_hl(0, "GlowNotebookNext", { fg = accents.Cells, bg = surface })
-  local cell_accent = dark and 0xdfa95b or 0xad732a
-  vim.api.nvim_set_hl(0, "GlowNotebookCell", { fg = 0xffffff, bg = cell_accent })
+  local cell_accent = theme_cell_accent()
+  vim.api.nvim_set_hl(0, "GlowNotebookCell", { fg = solid_ink, bg = cell_accent })
   for _, name in ipairs({ "Language", "Markdown", "Raw", "Run" }) do
-    vim.api.nvim_set_hl(0, "GlowNotebook" .. name, { fg = 0xffffff, bg = cell_accent })
+    vim.api.nvim_set_hl(0, "GlowNotebook" .. name, { fg = solid_ink, bg = cell_accent })
     vim.api.nvim_set_hl(0, "GlowNotebook" .. name .. "Cap", { fg = cell_accent, bg = "NONE" })
   end
   vim.api.nvim_set_hl(0, "GlowNotebookRunValue", { fg = cell_accent, bg = surface })
@@ -268,12 +296,12 @@ end
 function M.render_title(session, width)
   local prefix = M.leader_label()
   local selected = session.selected and session.selected.display_name or session.kernel
-  local status = session.starting and ("Starting… " .. (selected or session.requested or ""))
-    or session.ready and selected or session.selected and ("Stopped · " .. selected)
-    or ("Select (" .. prefix .. "jk)")
+  local status = session.starting and ("STARTING… " .. (selected or session.requested or ""))
+    or session.ready and selected or session.selected and ("STOPPED · " .. selected)
+    or ("SELECT " .. prefix .. "jk")
   local compact = width < 64
-  local kernel_label = width < 40 and "K" or "Kernel"
-  local cells_label, menu_label = width < 56 and "C" or "Cells", width < 56 and "M" or "Menu"
+  local kernel_label = width < 40 and "K" or "KERNEL"
+  local cells_label, menu_label = width < 56 and "C" or "CELLS", width < 56 and "M" or "MENU"
   local previous, following, gap = compact and "[c" or "↑ [c", compact and "]c" or "↓ ]c", compact and "  " or "   "
   local menu = prefix .. "j"
   local right_width = vim.fn.strdisplaywidth(cells_label .. previous .. gap .. following .. menu_label .. menu) + 13

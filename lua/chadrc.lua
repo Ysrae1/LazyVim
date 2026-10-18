@@ -48,7 +48,7 @@ M.ui = {
     separator_style = "round",
     order = { "left_padding", "mode", "file", "git", "%=", "lsp_msg", "%=", "diagnostics", "lsp", "cwd", "cursor" },
     modules = {
-      left_padding = "%#ST_EmptySpace#  ",
+      left_padding = "%#ST_EmptySpace# ",
     },
   },
 

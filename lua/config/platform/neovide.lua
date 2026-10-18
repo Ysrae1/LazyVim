@@ -21,8 +21,10 @@ vim.g.neovide_light_radius = 10
 vim.g.neovide_floating_blur_amount_x = 24.0
 vim.g.neovide_floating_blur_amount_y = 24.0
 vim.g.neovide_floating_corner_radius = 0.48
-vim.g.neovide_opacity = 0.95
-vim.g.neovide_normal_opacity = 0.9
+-- Expose the whole-window material through Normal while retaining solid UI
+-- highlights, selections and capsules in their existing theme colors.
+vim.g.neovide_opacity = 1.0
+vim.g.neovide_normal_opacity = 0.78
 vim.g.neovide_refresh_rate = 120
 vim.g.neovide_window_blurred = true
 require("config.platform.glass").setup()
