@@ -6,6 +6,7 @@ preserves every effective user option, including previewer args and ordering.
 import hashlib
 import json
 import re
+import shutil
 import sys
 import tomllib
 from pathlib import Path
@@ -43,6 +44,24 @@ def main():
     defaults = tomllib.loads((bridge / "defaults-26.5.6.toml").read_text())
     plugin = config.setdefault("plugin", {})
     plugin.setdefault("previewers", defaults["plugin"]["previewers"])
+    # A dedicated decoder only for the codec absent from this ImageMagick build.
+    # Other selectors and their existing relative priority are unchanged.
+    def executable(name):
+        return shutil.which(name) or next((str(Path(prefix) / name) for prefix in ("/opt/homebrew/bin", "/usr/local/bin") if (Path(prefix) / name).is_file()), name)
+
+    decoder = "neovide-glow-jxl" + "".join(" --" + option + "=" + json.dumps(executable(name)) for option, name in (
+        ("decoder", "djxl"), ("inspector", "jxlinfo"), ("magick", "magick")))
+    jxl_rules = [{"mime": "image/jxl", "run": decoder}, {"url": "*.[jJ][xX][lL]", "run": decoder}]
+    plugin["prepend_previewers"] = [*jxl_rules, *plugin.get("prepend_previewers", [])]
+    # Preview rules are rewritten to proxies below; preloaders keep their own
+    # provider entry point and must not share the mutable rule dictionaries.
+    plugin["prepend_preloaders"] = [*[dict(rule) for rule in jxl_rules], *plugin.get("prepend_preloaders", [])]
+    jxl_dir = target / "plugins/neovide-glow-jxl.yazi"
+    if jxl_dir.is_symlink():
+        jxl_dir.unlink()
+    jxl_dir.mkdir(exist_ok=True)
+    shutil.copyfile(bridge / "neovide-glow-jxl.yazi/main.lua", jxl_dir / "main.lua")
+    (target / "jxl-work").mkdir(exist_ok=True)
     wrapped = {}
     for key in ("prepend_previewers", "previewers", "append_previewers"):
         for rule in plugin.get(key, []):

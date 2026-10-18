@@ -176,7 +176,7 @@ local function overlay(source, target)
       local name = uv.fs_scandir_next(user_plugins)
       if not name then break end
       local destination = target .. "/plugins/" .. name
-      if name ~= plugin_name .. ".yazi" and not uv.fs_lstat(destination) then
+      if name ~= plugin_name .. ".yazi" and name ~= "neovide-glow-jxl.yazi" and not uv.fs_lstat(destination) then
         assert(uv.fs_symlink(source .. "/plugins/" .. name, destination))
       end
     end
