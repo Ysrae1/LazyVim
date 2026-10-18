@@ -138,18 +138,21 @@ local function on_message(event)
   local ok, payload = pcall(vim.json.decode, data.raw_data or "")
   if not ok or type(payload) ~= "table" then return end
   if payload.action == "state" then
-    if session.path ~= payload.path then
+    if session.source ~= payload.source then
       release(session)
-      session.region, session.error = nil, nil
+      session.path, session.region, session.error = nil, nil, nil
     end
-    session.path, session.visible = payload.path, payload.visible == true
-  elseif payload.action == "preview" and type(payload.path) == "string" and type(payload.area) == "table" then
+    session.source, session.visible = payload.source, payload.visible == true
+  elseif payload.action == "clear" then
+    release(session)
+    session.source, session.path, session.region, session.error = payload.source, nil, nil, nil
+  elseif payload.action == "preview" and type(payload.source) == "string" and type(payload.path) == "string" and type(payload.area) == "table" then
     local area = payload.area
     for _, key in ipairs({ "x", "y", "w", "h" }) do
       if type(area[key]) ~= "number" or area[key] ~= area[key] or math.abs(area[key]) > 1000000 then return end
     end
-    if session.path ~= payload.path then release(session) end
-    session.path, session.region, session.visible, session.error = payload.path, area, payload.visible == true, nil
+    if session.source ~= payload.source or session.path ~= payload.path then release(session) end
+    session.source, session.path, session.region, session.visible, session.error = payload.source, payload.path, area, payload.visible == true, nil
   else return end
   schedule()
 end
@@ -179,20 +182,18 @@ local function overlay(source, target)
     end
   end
   local own_plugin = target .. "/plugins/" .. plugin_name .. ".yazi"
-  if not uv.fs_lstat(own_plugin) then assert(uv.fs_symlink(module_dir .. "/yazi/" .. plugin_name .. ".yazi", own_plugin)) end
-  local content = vim.fn.filereadable(source .. "/yazi.toml") == 1 and table.concat(vim.fn.readfile(source .. "/yazi.toml"), "\n") or ""
-  local rules = '\n  { mime = "image/{png,jpeg,gif,webp,bmp,tiff,vnd.microsoft.icon,x-icon}", run = "' .. plugin_name .. '" },'
-    .. '\n  { url = "*.{png,jpg,jpeg,gif,webp,bmp,tif,tiff,ico}", run = "' .. plugin_name .. '" },\n'
-  local start, finish = content:find("prepend_previewers%s*=%s*%[")
-  if start then content = content:sub(1, finish) .. rules .. content:sub(finish + 1)
-  else
-    local _, section = content:find("%[plugin%][^\n]*\n")
-    if section then content = content:sub(1, section) .. "prepend_previewers = [" .. rules .. "]\n" .. content:sub(section + 1)
-    else content = content .. "\n[plugin]\nprepend_previewers = [" .. rules .. "]\n" end
-  end
-  vim.fn.writefile(vim.split(content, "\n", { plain = true }), target .. "/yazi.toml")
-  local init = {}
-  if vim.fn.filereadable(source .. "/init.lua") == 1 then init[1] = "dofile(" .. string.format("%q", source .. "/init.lua") .. ")" end
+  local own_metadata = uv.fs_lstat(own_plugin)
+  if own_metadata and own_metadata.type == "link" then assert(uv.fs_unlink(own_plugin)) end
+  vim.fn.mkdir(own_plugin, "p", 448)
+  assert(uv.fs_copyfile(module_dir .. "/yazi/" .. plugin_name .. ".yazi/main.lua", own_plugin .. "/main.lua"))
+  local python = vim.fn.exepath("python3")
+  local ok, runtime = pcall(require, "config.media.runtime")
+  if ok and vim.fn.executable(runtime.python()) == 1 then python = runtime.python() end
+  if python == "" then error("Yazi 原生预览配置需要 Python 3.11+（TOML 标准库）。") end
+  local output = vim.fn.system({ python, module_dir .. "/yazi/overlay.py", source, target, module_dir .. "/yazi" })
+  if vim.v.shell_error ~= 0 then error("无法准备 Yazi 原生预览配置：" .. output) end
+  local init = { 'require("' .. plugin_name .. '"):install()' }
+  if vim.fn.filereadable(source .. "/init.lua") == 1 then init[#init + 1] = "dofile(" .. string.format("%q", source .. "/init.lua") .. ")" end
   init[#init + 1] = 'require("' .. plugin_name .. '"):setup()'
   vim.fn.writefile(init, target .. "/init.lua")
 end
@@ -205,9 +206,9 @@ function M.setup()
   vim.api.nvim_create_autocmd("User", { group = group, pattern = "YaziDDSHover", callback = function(event)
     local data = event.data or {}
     local session = session_for(data.yazi_id)
-    if session and session.path ~= data.url then
+    if session and session.source ~= data.url then
       release(session)
-      session.path, session.region, session.error = data.url, nil, nil
+      session.source, session.path, session.region, session.error = data.url, nil, nil, nil
     end
   end })
   vim.api.nvim_create_autocmd({ "WinResized", "VimResized", "TabEnter", "WinEnter", "WinClosed", "BufWinEnter", "BufWinLeave", "CompleteChanged", "CompleteDone", "CmdlineEnter", "CmdlineLeave" }, {
@@ -240,7 +241,7 @@ function M.configure(opts)
   end
   opts.hooks.yazi_opened = function(path, buf, config)
     local wins = vim.fn.win_findbuf(buf)
-    sessions[buf] = { buf = buf, win = wins[1], path = path, visible = true }
+    sessions[buf] = { buf = buf, win = wins[1], source = path, visible = true }
     if opened then opened(path, buf, config) end
   end
   opts.hooks.on_yazi_ready = function(buf, config, api)
@@ -261,7 +262,7 @@ end
 function M.status()
   local result = {}
   for buf, session in pairs(sessions) do
-    result[buf] = { path = session.path, region = session.region, visible = session.visible, id = session.id, yazi_id = session.yazi_id }
+    result[buf] = { source = session.source, path = session.path, region = session.region, visible = session.visible, id = session.id, yazi_id = session.yazi_id }
   end
   return result
 end
