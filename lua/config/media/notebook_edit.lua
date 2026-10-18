@@ -90,11 +90,11 @@ function M.label_chunks(kind, language, playing)
     label_icons[filetype] = icon or ({ python = "", markdown = "", text = "" })[filetype] or ""
   end
   local group = kind == "markdown" and "GlowNotebookMarkdown" or kind == "raw" and "GlowNotebookRaw" or "GlowNotebookLanguage"
-  local text = kind == "markdown" and "Markdown" or kind == "raw" and "Raw" or language
-  local chunks = { { "", group .. "Cap" }, { " " .. label_icons[filetype] .. " " .. text .. " ", group }, { "", group .. "Cap" } }
+  local chunks = { { "", group .. "Cap" }, { " " .. label_icons[filetype] .. " ", group }, { "", group .. "Cap" } }
   if kind == "code" then
-    vim.list_extend(chunks, { { " ", "GlowNotebookBar" }, { "", "GlowNotebookRunCap" },
-      { " " .. (playing and "▶" or "▷") .. " (⇧↵) ", "GlowNotebookRun" }, { "", "GlowNotebookRunCap" } })
+    vim.list_extend(chunks, { { "   ", "GlowNotebookBar" }, { "", "GlowNotebookRunCap" },
+      { " " .. (playing and "▶" or "▷") .. " ", "GlowNotebookRun" },
+      { " (⇧↵) ", "GlowNotebookRunValue" }, { "", "GlowNotebookRunValueCap" } })
   end
   return chunks
 end
@@ -106,9 +106,9 @@ function M.cell_labels(buf)
   local molten_namespace = vim.api.nvim_get_namespaces()["molten-extmarks"]
   if molten_namespace then
     for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(buf, molten_namespace, 0, -1, { details = true })) do
-      -- Native cards may prepend blank padding to Molten's actual status line.
-      -- Read only the FIRST NONEMPTY line in this namespace, then stop; never
-      -- search printed results for a status. HOLD/DONE/failed/imported stay ▷.
+      -- Read only the FIRST NONEMPTY Molten status line, then stop; never search
+      -- printed results. Skipping empty rows also accepts older saved layout.
+      -- The current native UI does not rewrite Molten output virtual lines.
       local header
       for _, line in ipairs(mark[4].virt_lines or {}) do
         local chunks = {}
@@ -134,7 +134,10 @@ function M.cell_labels(buf)
       end
       local row = M.content_line(cell, line_count) - 1
       local chunks = M.label_chunks(cell.kind, language, playing)
-      labels[#labels + 1] = { cell = cell, index = index, row = row, chunks = chunks, running = playing }
+      local width = 0
+      for _, chunk in ipairs(chunks) do width = width + vim.fn.strdisplaywidth(chunk[1]) end
+      labels[#labels + 1] = { cell = cell, index = index, row = row, chunks = chunks, width = width,
+        accent = M.cell_accent(), running = playing }
     end
   end
   return labels
@@ -146,7 +149,7 @@ function M.refresh_labels(buf)
   -- A text-border UI may own its complete top line. Native frame presentation
   -- keeps the source-line fallback; the renderer declares ownership explicitly.
   local ui = package.loaded["config.media.notebook_ui"]
-  if vim.g.neovide_native_notebook == true and ui and ui.text_borders == true then
+  if vim.g.neovide_native_notebook == true and ui and (ui.text_borders == true or ui.border_labels == true) then
     if label_signatures[buf] then vim.api.nvim_buf_clear_namespace(buf, namespace, 0, -1) end
     label_signatures[buf] = nil
     return labels
@@ -176,6 +179,11 @@ function M.leader_label()
   local leader = vim.g.mapleader or "\\"
   leader = vim.api.nvim_replace_termcodes(leader, true, false, true)
   return leader == " " and "␣" or vim.fn.keytrans(leader)
+end
+
+function M.cell_accent()
+  local group = vim.api.nvim_get_hl(0, { name = "GlowNotebookCell", link = false, create = false })
+  return group.bg or (vim.o.background == "dark" and 0xdfa95b or 0xad732a)
 end
 
 function M.refresh_title_colors()
@@ -224,10 +232,14 @@ function M.refresh_title_colors()
   end
   vim.api.nvim_set_hl(0, "GlowNotebookPrev", { fg = accents.Cells, bg = surface })
   vim.api.nvim_set_hl(0, "GlowNotebookNext", { fg = accents.Cells, bg = surface })
-  for name, accent in pairs({ Language = accents.Kernel, Markdown = accents.Menu, Raw = accents.Cells, Run = accents.Kernel }) do
-    vim.api.nvim_set_hl(0, "GlowNotebook" .. name, { fg = accent, bg = surface })
-    vim.api.nvim_set_hl(0, "GlowNotebook" .. name .. "Cap", { fg = surface, bg = "NONE" })
+  local cell_accent = dark and 0xdfa95b or 0xad732a
+  vim.api.nvim_set_hl(0, "GlowNotebookCell", { fg = 0xffffff, bg = cell_accent })
+  for _, name in ipairs({ "Language", "Markdown", "Raw", "Run" }) do
+    vim.api.nvim_set_hl(0, "GlowNotebook" .. name, { fg = 0xffffff, bg = cell_accent })
+    vim.api.nvim_set_hl(0, "GlowNotebook" .. name .. "Cap", { fg = cell_accent, bg = "NONE" })
   end
+  vim.api.nvim_set_hl(0, "GlowNotebookRunValue", { fg = cell_accent, bg = surface })
+  vim.api.nvim_set_hl(0, "GlowNotebookRunValueCap", { fg = surface, bg = "NONE" })
 end
 
 local function fit_text(text, width)

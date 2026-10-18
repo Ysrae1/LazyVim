@@ -1,6 +1,6 @@
 -- Presentation only: real Neovim text and Molten outputs stay authoritative.
 -- Skia draws the rounded strokes; empty virtual rows supply their inner padding.
-local M = {}
+local M = { border_labels = true }
 local states, windows, configured, pending, previous, timer = {}, {}, false, false, nil, nil
 local api = vim.api
 local padding_ns = api.nvim_create_namespace('glow.notebook.layout')
@@ -63,7 +63,10 @@ local function metadata(buf, state)
       if lines[index]:match('^# %-%-%-%s*$') then last = index; break end
     end
   end
+  -- A whole-buffer reload can move extmarks even when the metadata has exactly
+  -- the same shape. Its text generation must invalidate the stored positions.
   local signature = tostring(state.show_metadata) .. ':' .. tostring(last)
+    .. ':' .. tostring(api.nvim_buf_get_changedtick(buf))
   if signature ~= state.metadata then
     state.metadata = signature
     api.nvim_buf_clear_namespace(buf, metadata_ns, 0, -1)
@@ -83,6 +86,62 @@ local function metadata(buf, state)
     end
   end
 end
+local function top_labels(buf, state, editor)
+  local columns
+  for _, win in ipairs(vim.fn.win_findbuf(buf)) do
+    if api.nvim_win_get_config(win).relative == '' then
+      local info = vim.fn.getwininfo(win)[1]
+      if info then
+        local width = info.width - math.max(2, info.textoff)
+        columns = math.min(columns or width, width)
+      end
+    end
+  end
+  local labels = editor.cell_labels and editor.cell_labels(buf) or {}
+  local signature = { columns, labels }
+  state.accent = api.nvim_get_hl(0, { name = 'GlowNotebookCell', link = false }).bg
+    or (vim.o.background == 'dark' and 0xdfa95b or 0xad732a)
+  if vim.deep_equal(signature, state.label_signature) then return end
+  state.label_signature, state.label_gaps = copy(signature), {}
+  for _, mark in pairs(state.top_marks) do
+    api.nvim_buf_set_extmark(buf, padding_ns, mark.row, 0, {
+      id = mark.id, virt_lines = { copy(blank) }, virt_lines_above = true,
+      right_gravity = false, strict = false,
+    })
+  end
+  for _, label in ipairs(labels) do
+    local mark = state.top_marks[label.index]
+    if mark then
+      local width = label.width
+      if not width then
+        local text = ''; for _, chunk in ipairs(label.chunks) do text = text .. chunk[1] end
+        width = vim.fn.strdisplaywidth(text)
+      end
+      if columns and width + 4 <= columns then
+        local prefix = columns - width - 2 -- keep the top-right rounded corner clear
+        local chunks = { { string.rep(' ', prefix), 'Normal' } }
+        vim.list_extend(chunks, copy(label.chunks))
+        api.nvim_buf_set_extmark(buf, padding_ns, mark.row, 0, {
+          id = mark.id, virt_lines = { chunks }, virt_lines_above = true,
+          right_gravity = false, strict = false,
+        })
+        local gaps, cursor, segment = {}, prefix, nil
+        for _, chunk in ipairs(label.chunks) do
+          local size = vim.fn.strdisplaywidth(chunk[1])
+          if chunk[2] == 'GlowNotebookBar' and chunk[1]:match('^ +$') then
+            if segment then gaps[#gaps + 1] = segment; segment = nil end
+          else
+            segment = segment or { col = cursor, width = 0 }
+            segment.width = segment.width + size
+          end
+          cursor = cursor + size
+        end
+        if segment then gaps[#gaps + 1] = segment end
+        state.label_gaps[label.index] = gaps
+      end
+    end
+  end
+end
 local function prepare(buf, state)
   local editor = require('config.media.notebook_edit')
   if editor.refresh_labels then editor.refresh_labels(buf) end
@@ -98,8 +157,9 @@ local function prepare(buf, state)
     state.revision = (state.revision or 0) + 1
     api.nvim_buf_clear_namespace(buf, padding_ns, 0, -1)
     api.nvim_buf_clear_namespace(buf, markers_ns, 0, -1)
+    state.top_marks, state.label_signature = {}, nil
     local count = api.nvim_buf_line_count(buf)
-    for _, cell in ipairs(list) do
+    for index, cell in ipairs(list) do
       local first = cell_start(cell, count, state.show_metadata)
       if cell.header > 0 and first > cell.header and not state.show_metadata then
         api.nvim_buf_set_extmark(buf, markers_ns, cell.header - 1, 0, {
@@ -111,9 +171,10 @@ local function prepare(buf, state)
       for _, item in ipairs(out) do
         if item.row + 1 >= first and item.row + 1 <= math.max(last, cell.finish) then has_output = true; break end
       end
-      api.nvim_buf_set_extmark(buf, padding_ns, first - 1, 0, {
+      local mark = api.nvim_buf_set_extmark(buf, padding_ns, first - 1, 0, {
         virt_lines = { copy(blank) }, virt_lines_above = true, right_gravity = false, strict = false,
       })
+      state.top_marks[index] = { id = mark, row = first - 1 }
       if not has_output then
         api.nvim_buf_set_extmark(buf, padding_ns, last - 1, 0, {
           virt_lines = { copy(blank) }, right_gravity = false, strict = false,
@@ -129,6 +190,7 @@ local function prepare(buf, state)
       end
     end
   end
+  top_labels(buf, state, editor)
   metadata(buf, state)
   return list, out
 end
@@ -209,6 +271,16 @@ local function normal_frames(win, buf, list, out, frames)
     if current >= math.max(1, cell.header) then selected = index end
   end
   local cached = windows[win]
+  local function style(frame)
+    if frame.kind ~= 'input' then return end
+    frame.color = state.accent
+    frame.label_gaps = nil
+    for _, gap in ipairs(state.label_gaps and state.label_gaps[frame.cell] or {}) do
+      frame.label_gaps = frame.label_gaps or {}
+      frame.label_gaps[#frame.label_gaps + 1] = {
+        col = (info.textoff or 0) + gap.col - frame.rect.col - 0.1, width = gap.width + 0.2 }
+    end
+  end
   local key = { state.revision, state.metadata, clip.width, clip.height, info.textoff,
     info.winbar, vim.wo[win].wrap, vim.wo[win].foldlevel, vim.wo[win].foldenable }
   if vim.deep_equal(key, cached.model_key) then
@@ -216,6 +288,7 @@ local function normal_frames(win, buf, list, out, frames)
       local item = copy(frame)
       item.active = item.kind == 'input' and item.cell == selected and win == api.nvim_get_current_win()
       item.dark = vim.o.background == 'dark'
+      style(item)
       frames[#frames + 1] = item
     end
     return
@@ -234,7 +307,7 @@ local function normal_frames(win, buf, list, out, frames)
     for _, item in ipairs(out) do
       if item.row + 1 >= math.max(1, cell.header) and item.row + 1 <= cell.finish then has_output = true; break end
     end
-    local top = row_at(first) - 0.65
+    local top = row_at(first) - 0.5 -- center the stroke on the label's virtual row
     local bottom = row_at(last) + line_height(last) + (has_output and -0.05 or 0.4)
     local rect = { row = top, col = left, width = width, height = math.max(1, bottom - top) }
     frames[#frames + 1] = { kind = 'input', cell = index, rect = rect, clip = clip,
@@ -277,6 +350,7 @@ local function normal_frames(win, buf, list, out, frames)
     frame.clip = copy(frame.clip)
     frame.clip.row, frame.clip.col = frame.clip.row - origin[1], frame.clip.col - origin[2]
     frame.anchor = { window = win, epoch = epoch, scroll = true }
+    style(frame)
     cached.frames[#cached.frames + 1] = copy(frame)
   end
 end
