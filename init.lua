@@ -1,13 +1,14 @@
-require("startup.color")
+-- Apply GUI options before plugin startup can process the first UI events.
+require("config.platform.neovide")
 
-require("startup.matrix")
+require("config.appearance.startup")
+
+require("config.appearance.intro")
 
 require("config.lazy")
 
-require("startup.lang_toggle")
+require("config.platform.locale")
 
-require("startup.keymap_mac")
+require("config.platform.macos_keymaps")
 
-require("neovide")
-
-require("startup.extra")
+require("config.editor.settings")

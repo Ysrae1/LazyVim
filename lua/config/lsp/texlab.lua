@@ -1,11 +1,4 @@
--- lua/configs/lsp/texlab.lua
-
-local lspconfig = require("lspconfig")
-local keymaps = require("config.keymaps")
-
-lspconfig.texlab.setup({
-  on_attach = keymaps.on_attach,
-  capabilities = require("cmp_nvim_lsp").default_capabilities(),
+return {
   settings = {
     texlab = {
       build = {
@@ -28,7 +21,7 @@ lspconfig.texlab.setup({
         onEdit = true,
         onOpenAndSave = true,
       },
-      bibtexFormatter = "texlab", -- 选择 bibtex 格式化工具
+      bibtexFormatter = "texlab",
     },
   },
-})
+}

@@ -15,13 +15,9 @@ M.on_attach = function(client, bufnr)
 end
 
 function M.toggle_diagnostics()
-  if vim.g.diagnostics_active then
-    vim.g.diagnostics_active = false
-    vim.diagnostic.disable(nil)
-  else
-    vim.g.diagnostics_active = true
-    vim.diagnostic.enable(nil)
-  end
+  local enabled = not vim.diagnostic.is_enabled()
+  vim.diagnostic.enable(enabled)
+  vim.g.diagnostics_active = enabled
 end
 
 local map = vim.keymap.set
@@ -31,7 +27,7 @@ local del = vim.keymap.del
 map(
   "n",
   "<leader>tn",
-  "<cmd>lua require('toggles').toggle_null_ls()<CR>",
+  "<cmd>lua require('config.editor.toggles').toggle_null_ls()<CR>",
   { noremap = true, silent = true, desc = "Toggle null_ls" }
 )
 
@@ -86,8 +82,8 @@ map("n", "<leader>th", function()
 end, { desc = "telescope nvchad themes" })
 
 map("n", "<leader>tf", function()
-  builtin.find_files()
-end, { desc = "telescope find files" })
+  require("fff").find_files({ cwd = vim.fn.getcwd() })
+end, { desc = "FFF find files" })
 map("n", "<leader>ta", function()
   builtin.find_files({ follow = true, no_ignore = true, hidden = true })
 end, { desc = "telescope find all files" })

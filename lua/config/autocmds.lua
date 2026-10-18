@@ -36,7 +36,7 @@ vim.api.nvim_create_autocmd("TermOpen", {
   callback = function()
     local path = vim.fn.expand("%:p:h")
     if vim.fn.isdirectory(path) == 1 then
-      vim.cmd("lcd " .. path)
+      vim.cmd("lcd " .. vim.fn.fnameescape(path))
     else
       vim.cmd("lcd ~") -- 如果目标路径不存在，切换到用户主目录
     end
@@ -55,5 +55,18 @@ vim.api.nvim_create_autocmd("TermOpen", {
 
 vim.api.nvim_create_autocmd("BufEnter", {
   pattern = "*",
-  command = "silent! lcd %:p:h",
+  callback = function(event)
+    if vim.bo[event.buf].buftype == "" then
+      local file = vim.api.nvim_buf_get_name(event.buf)
+      if file ~= "" and not file:match("^%a[%w+.-]*://") then
+        local directory = vim.fs.dirname(file)
+        if vim.fn.isdirectory(directory) == 1 then
+          vim.cmd.lcd(vim.fn.fnameescape(directory))
+        end
+      end
+    end
+  end,
 })
+
+-- 复制成功反馈：单独使用当前主题的 base0F。
+require("config.appearance.yank").setup()

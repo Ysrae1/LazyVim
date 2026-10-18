@@ -6,3 +6,15 @@ debug
 foo.*
 *.log
 data
+
+# Generated editor/cache files
+.DS_Store
+.mypy_cache/
+
+# Archived machine state is kept only in the local rollback backup
+archive/legacy/session.vim
+archive/legacy/lang_setting.txt
+archive/legacy/scale_factor.txt
+
+# Inactive draft containing credential literals stays local
+archive/disabled_plugins/codecompanion.lua.txt
