@@ -8,7 +8,7 @@ local saved_options = { 'number','relativenumber','signcolumn','foldcolumn','wra
 
 function M.kind(path)
   local ext = (path:match('%.([^./]+)$') or ''):lower()
-  return audio[ext] and 'audio' or video[ext] and 'video' or web[ext] and 'web' or nil
+  return audio[ext] and 'audio' or video[ext] and 'video' or web[ext] and 'web' or ext=='pdf' and 'pdf' or nil
 end
 function M.supports(path) return type(path)=='string' and M.kind(path) ~= nil end
 local function available() return vim.g.neovide_native_preview == true and type(vim.g.neovide_channel_id)=='number' end
@@ -17,7 +17,7 @@ local function canonical(source)
   local path=vim.fs.normalize(vim.fn.fnamemodify(source,':p'))
   return vim.uv.fs_realpath(path) or path
 end
-local function warn(text) vim.notify(text,vim.log.levels.WARN,{title='媒体与网页预览'}) end
+local function warn(text) vim.notify(text,vim.log.levels.WARN,{title='原生预览'}) end
 local function rpc(method,...)
   if available() then return pcall(vim.rpcnotify,vim.g.neovide_channel_id,'neovide.preview.'..method,...) end
   return false
@@ -53,8 +53,10 @@ local function title(view)
   local status=view.status or {}
   local state=states[status.state] or '正在加载…'
   local extra=''
-  if view.kind~='web' then extra=('  %.1f / %.1f s  音量 %d%%'):format(status.position or 0,status.duration or 0,math.floor((status.volume or 1)*100+.5)) end
-  local help=view.kind=='web' and ' i 页面焦点  +/− 缩放  r 刷新  q 关闭 ' or ' Space 播放  h/l 跳转  +/− 音量  q 关闭 '
+  if view.kind=='pdf' then
+    extra=('  第 %d / %d 页  %.0f%%'):format(status.page or 0,status.pages or 0,(status.zoom or 1)*100)
+  elseif view.kind~='web' then extra=('  %.1f / %.1f s  音量 %d%%'):format(status.position or 0,status.duration or 0,math.floor((status.volume or 1)*100+.5)) end
+  local help=view.kind=='pdf' and ' [p/]p 翻页  +/− 缩放  0 适应  i 焦点  q 关闭 ' or view.kind=='web' and ' i 页面焦点  +/− 缩放  r 刷新  q 关闭 ' or ' Space 播放  h/l 跳转  +/− 音量  q 关闭 '
   vim.wo[view.win].winbar=' '..view.title:gsub('%%','%%%%')..' · '..state..extra..'%=%<'..help
 end
 local function geometry(view)
@@ -77,10 +79,13 @@ function M.refresh()
       if not view.id then
         next_id=next_id+1; view.id=next_id; active[view.id]=view
         view.resume=view.status and view.status.position or 0
+        view.resume_page=view.status and view.status.page
         view.status={state='loading',volume=view.volume or 1}
         write(view,{'正在准备原生预览…','','页面内 Cmd+Esc 返回编辑器；Ctrl+Tab / Ctrl+Shift+Tab 切换标签页。'})
         rpc('open',view.id,view.kind,view.current_url or view.source)
         if view.kind=='web' then rpc('action',view.id,'zoom',view.zoom or 1)
+        elseif view.kind=='pdf' then
+          if view.pdf_fit~=false then rpc('action',view.id,'fit') else rpc('action',view.id,'zoom',view.zoom or 1) end
         else rpc('action',view.id,'volume',view.volume or 1) end
       end
       title(view); show(view)
@@ -112,7 +117,8 @@ function M.on_status(id,json)
     write(view,{'预览失败','',tostring(status.error or '未知错误'),'','r 重试；q 关闭。'})
     if previous.error~=status.error then warn(tostring(status.error or '预览失败')) end
   elseif status.state~='loading' then
-    if view.resume and view.resume>0 and view.kind~='web' then rpc('action',id,'seek',view.resume); view.resume=nil end
+    if view.resume and view.resume>0 and (view.kind=='audio' or view.kind=='video') then rpc('action',id,'seek',view.resume); view.resume=nil end
+    if view.kind=='pdf' and view.resume_page then rpc('action',id,'page',view.resume_page); view.resume_page=nil end
     if previous.state=='loading' or previous.state=='error' then write(view,{}) end
   end
   title(view)
@@ -140,7 +146,7 @@ function M.seek(delta)
   local s=v.status or {}; M.action('seek',math.max(0,math.min(s.duration or 0,(s.position or 0)+delta)))
 end
 function M.zoom(factor)
-  local v=current(); if v then v.zoom=math.max(.25,math.min(5,(v.zoom or 1)*factor)); M.action('zoom',v.zoom) end
+  local v=current(); if v then v.pdf_fit=false; v.zoom=math.max(.25,math.min(5,(v.zoom or 1)*factor)); M.action('zoom',v.zoom) end
 end
 function M.volume(delta)
   local v=current(); if v then v.volume=math.max(0,math.min(1,(v.volume or 1)+delta)); M.action('volume',v.volume) end
@@ -196,9 +202,15 @@ function M.open(source,opts)
   map('<D-{>','gT','上一个标签页'); map('<D-}>','gt','下一个标签页')
   map('<C-Tab>','gt','下一个标签页'); map('<C-S-Tab>','gT','上一个标签页')
   map('i',function() M.action('focus') end,'进入原生面板'); map('<CR>',function() M.action('focus') end,'进入原生面板')
-  if kind=='web' then
-    map('+',function() M.zoom(1.1) end,'放大网页'); map('=',function() M.zoom(1.1) end,'放大网页'); map('-',function() M.zoom(1/1.1) end,'缩小网页')
-    map('0',function() v.zoom=1; M.action('zoom',1) end,'恢复网页缩放')
+  if kind=='web' or kind=='pdf' then
+    if kind=='pdf' then
+      map(']p',function() M.action('next') end,'PDF 下一页'); map('[p',function() M.action('previous') end,'PDF 上一页')
+      map('<PageDown>',function() M.action('next') end,'PDF 下一页'); map('<PageUp>',function() M.action('previous') end,'PDF 上一页')
+    end
+    map('+',function() M.zoom(1.1) end,'放大预览'); map('=',function() M.zoom(1.1) end,'放大预览'); map('-',function() M.zoom(1/1.1) end,'缩小预览')
+    map('0',function()
+      if kind=='pdf' then v.pdf_fit=true; M.action('fit') else v.zoom=1; M.action('zoom',1) end
+    end,'恢复默认缩放')
   else
     map('<Space>',function() M.action('toggle') end,'播放或暂停')
     map('h',function() M.seek(-5) end,'后退五秒'); map('l',function() M.seek(5) end,'前进五秒')
@@ -215,7 +227,7 @@ function M.from_tree(event)
   local cmd=event.open_cmd or 'edit'
   local split=({split='split',sp='split',sb='split',vsplit='vsplit',vs='vsplit',['vert sb']='vsplit',tabnew='tabnew',tabedit='tabnew'})[cmd]
   if not split and is_tree then split=state.current_position=='right' and 'leftabove vnew' or 'rightbelow vnew' end
-  local opener=event.path:lower():match('%.ipynb$') and require('config.media.notebook').open or M.open
+  local opener=event.path:lower():match('%.ipynb$') and require('config.media.notebook_edit').open or M.open
   local ok,err=pcall(opener,event.path,{win=win,command=split or ''})
   if not ok then warn(tostring(err)) end
   return {handled=true}
@@ -246,6 +258,7 @@ function M.setup()
   end})
   vim.api.nvim_create_user_command('GlowMedia',function(a) M.open(a.args~='' and a.args or vim.api.nvim_buf_get_name(0)) end,{nargs='?',complete='file',desc='音频与视频原生预览'})
   vim.api.nvim_create_user_command('GlowWeb',function(a) M.open(a.args~='' and a.args or vim.api.nvim_buf_get_name(0),{kind='web'}) end,{nargs='?',complete='file',desc='内嵌网页预览'})
+  vim.api.nvim_create_user_command('GlowPDF',function(a) M.open(a.args~='' and a.args or vim.api.nvim_buf_get_name(0),{kind='pdf'}) end,{nargs='?',complete='file',desc='原生 PDF 预览'})
   vim.api.nvim_create_user_command('GlowPreviewFocus',function() M.action('focus') end,{desc='进入原生预览面板'})
   vim.api.nvim_create_user_command('GlowPreviewClose',M.close,{desc='关闭原生预览面板'})
   timer=vim.uv.new_timer()

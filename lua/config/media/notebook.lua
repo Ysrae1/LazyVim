@@ -195,7 +195,7 @@ function M.setup()
   vim.api.nvim_create_autocmd("VimLeavePre", { group = group, callback = function()
     for _, session in pairs(sessions) do close(session) end
   end })
-  vim.api.nvim_create_user_command("GlowNotebook", function(args)
+  vim.api.nvim_create_user_command("GlowNotebookPreview", function(args)
     M.open(args.args ~= "" and args.args or vim.api.nvim_buf_get_name(0))
   end, { nargs = "?", complete = "file", desc = "查看 Notebook 单元格与已保存静态输出" })
 end

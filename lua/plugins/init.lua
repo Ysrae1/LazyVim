@@ -11,6 +11,7 @@ return {
   { import = "plugins.navigation.fff" },
   { import = "plugins.appearance.indent_blankline" },
   { import = "plugins.tools.lazygit" },
+  { import = "plugins.tools.glow_notebook" },
   { import = "plugins.languages.nvim_lspconfig" },
   { import = "plugins.appearance.lualine" },
   { import = "plugins.languages.mason" },

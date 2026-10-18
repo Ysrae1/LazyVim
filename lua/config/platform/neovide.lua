@@ -107,6 +107,7 @@ vim.api.nvim_create_autocmd("VimLeavePre", { group = group, callback = M.save_sc
 require("config.media.image").setup()
 require("config.media.preview").setup()
 require("config.media.notebook").setup()
+require("config.media.notebook_edit").setup()
 require("config.media.book").setup()
 
 return M

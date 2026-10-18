@@ -111,6 +111,10 @@
     "branch": "master",
     "commit": "005b56001b2cb30bfa61b7986bc50657816ba4ba"
   },
+  "jupytext.nvim": {
+    "branch": "main",
+    "commit": "c8baf3ad344c59b3abd461ecc17fc16ec44d0f7b"
+  },
   "lazy.nvim": {
     "branch": "main",
     "commit": "85c7ff3711b730b4030d03144f6db6375044ae82"
@@ -158,6 +162,10 @@
   "mini.surround": {
     "branch": "main",
     "commit": "cc7b9d0a056b5fa6915ffac1cb91f29bf7c96f69"
+  },
+  "molten-nvim": {
+    "branch": "main",
+    "commit": "bedea63819c618e007e7c40059fc6e72d598c8df"
   },
   "multicursors.nvim": {
     "branch": "main",
