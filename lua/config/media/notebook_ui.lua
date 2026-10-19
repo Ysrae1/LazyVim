@@ -5,12 +5,34 @@ local states, windows, configured, pending, previous, timer = {}, {}, false, fal
 local api = vim.api
 local padding_ns = api.nvim_create_namespace('glow.notebook.layout')
 local separator_ns = api.nvim_create_namespace('glow.notebook.separator')
+local footer_ns = api.nvim_create_namespace('glow.notebook.footer')
 local metadata_ns = api.nvim_create_namespace('glow.notebook.metadata')
 local markers_ns = api.nvim_create_namespace('glow.notebook.markers')
 local molten_ns = api.nvim_create_namespace('molten-extmarks')
 local blank = { { '', 'Normal' } }
 local right_inset = 1
 local next_epoch, popup_models = 0, {}
+
+-- 与输入框右上标签共用右端点；多窗口时沿用最窄可见视图，避免越界。
+local function label_columns(buf)
+  local columns
+  for _, win in ipairs(vim.fn.win_findbuf(buf)) do
+    if api.nvim_win_get_config(win).relative == '' then
+      local info = vim.fn.getwininfo(win)[1]
+      if info then
+        local width = info.width - math.max(2, info.textoff) - right_inset
+        columns = math.min(columns or width, width)
+      end
+    end
+  end
+  return columns
+end
+
+local function line_text(chunks)
+  local text = ''
+  for _, chunk in ipairs(chunks) do text = text .. chunk[1] end
+  return text
+end
 
 local function available()
   return vim.g.neovide_native_notebook == true and type(vim.g.neovide_channel_id) == 'number'
@@ -51,7 +73,17 @@ local function outputs(buf)
     if mark[2] >= 0 and mark[2] < count and not mark[4].invalid and lines and is_output(lines) then
       -- Molten is the sole writer of its output. While running it replaces this
       -- mark every tick; adding padding here used to make its height oscillate.
+      local width, folded = 0, false
+      for index, chunks in ipairs(lines) do
+        local text = line_text(chunks)
+        width = math.max(width, vim.fn.strdisplaywidth(text))
+        -- Molten 的真实折叠标记只会出现在末行，或首个状态行之后。
+        -- 不因输出行数多、状态文字或任意省略号而猜测存在隐藏内容。
+        if (index == #lines and text:match('^󰁅 [1-9]%d* More lines%s*$'))
+            or (index == 2 and text:match('^↑ [1-9]%d* More lines%s*$')) then folded = true end
+      end
       result[#result + 1] = { id = mark[1], row = mark[2], lines = #lines,
+        width = width, folded = folded,
         namespace = molten_ns, above = mark[4].virt_lines_above == true }
     end
   end
@@ -101,16 +133,7 @@ local function metadata(buf, state)
   end
 end
 local function top_labels(buf, state, editor)
-  local columns
-  for _, win in ipairs(vim.fn.win_findbuf(buf)) do
-    if api.nvim_win_get_config(win).relative == '' then
-      local info = vim.fn.getwininfo(win)[1]
-      if info then
-        local width = info.width - math.max(2, info.textoff) - right_inset
-        columns = math.min(columns or width, width)
-      end
-    end
-  end
+  local columns = label_columns(buf)
   local labels = editor.cell_labels and editor.cell_labels(buf) or {}
   local signature = { columns, labels }
   state.accent = api.nvim_get_hl(0, { name = 'GlowNotebookCell', link = false }).bg
@@ -157,23 +180,92 @@ local function top_labels(buf, state, editor)
     end
   end
 end
+
+local function footer_chunks(columns)
+  -- 左侧实心绿色图标段与输出边框同色，右侧显示按键。
+  -- 独立组不声明 enlarged_icon / notebook_actions，保持与上方端帽相同字号。
+  local chunks = { { '', 'GlowNotebookExpandCap' }, { '󰕏 ', 'GlowNotebookExpand' },
+    { ' ␣jo', 'GlowNotebookExpandValue' }, { '', 'GlowNotebookExpandValueCap' } }
+  local width = 0
+  for _, chunk in ipairs(chunks) do width = width + vim.fn.strdisplaywidth(chunk[1]) end
+  if not columns or width + 4 > columns then return end
+  table.insert(chunks, 1, { string.rep(' ', columns - width - 2), 'Normal' })
+  return chunks, { col = columns - width - 2, width = width }
+end
+
+local function footer_labels(buf, state, columns)
+  local chunks, gap = footer_chunks(columns)
+  if not chunks then return end
+  local marks = api.nvim_buf_get_extmarks(buf, -1, 0, -1, { details = true })
+  for _, footer in pairs(state.footer_marks) do
+    -- 同锚点空行没有可用 EOL 列作排序。Molten 删除重建输出后，只重排
+    -- 我们自己的末行；输出 extmark、文本、保存内容与内核始终不变。
+    local seen, after = false, false
+    for _, mark in ipairs(marks) do
+      local d = mark[4]
+      if mark[2] == footer.row and d.virt_lines and not d.invalid
+          and (d.virt_lines_above == true) == footer.above then
+        if d.ns_id == footer_ns and mark[1] == footer.id then seen = true
+        elseif seen then after = true end
+      end
+    end
+    if after then
+      api.nvim_buf_del_extmark(buf, footer_ns, footer.id)
+      state.footer_cells[footer.id] = nil
+      footer.id = nil
+    end
+    if after or footer.columns ~= columns or not footer.id then
+      footer.id = api.nvim_buf_set_extmark(buf, footer_ns, footer.row, footer.col, {
+        id = footer.id, virt_lines = { copy(chunks) }, virt_lines_above = footer.above,
+        right_gravity = true, strict = false,
+      })
+      footer.columns = columns
+      state.footer_cells[footer.id] = footer.cell
+    end
+    state.footer_gaps[footer.cell] = gap
+  end
+end
+
 local function prepare(buf, state)
   local editor = require('config.media.notebook_edit')
   if editor.refresh_labels then editor.refresh_labels(buf) end
   local list, out = cells(buf), outputs(buf)
-  local geometry = {}
+  local geometry, footers = {}, {}
+  local columns = label_columns(buf)
   for _, item in ipairs(out) do
     -- Mark identity and equal-height text/status changes do not change layout.
     geometry[#geometry + 1] = { row = item.row, lines = item.lines, above = item.above }
+    for index, cell in ipairs(list) do
+      if item.row + 1 >= math.max(1, cell.header > 0 and cell.header or cell.first)
+          and item.row + 1 <= cell.finish then
+        local footer = footers[index] or { cell = index, row = item.row, above = item.above, needed = false }
+        -- 实际折叠提示，或确实超出内框宽度的虚拟行，才提供展开入口。
+        footer.needed = footer.needed or item.folded == true
+          or (columns ~= nil and (item.width or 0) > columns)
+        if item.row >= footer.row then footer.row, footer.above = item.row, item.above end
+        footers[index] = footer
+        break
+      end
+    end
   end
-  local signature = { list, geometry, api.nvim_buf_get_changedtick(buf), state.show_metadata }
+  local wanted_footers = {}
+  if footer_chunks(columns) then
+    for _, footer in pairs(footers) do
+      if footer.needed then wanted_footers[#wanted_footers + 1] = footer end
+    end
+    table.sort(wanted_footers, function(a, b) return a.cell < b.cell end)
+  end
+  local signature = { list, geometry, wanted_footers, api.nvim_buf_get_changedtick(buf), state.show_metadata,
+    vim.g.neovide_native_notebook_footer == true }
   if not vim.deep_equal(signature, state.layout) then
     state.layout = copy(signature)
     state.revision = (state.revision or 0) + 1
     api.nvim_buf_clear_namespace(buf, padding_ns, 0, -1)
     api.nvim_buf_clear_namespace(buf, separator_ns, 0, -1)
+    api.nvim_buf_clear_namespace(buf, footer_ns, 0, -1)
     api.nvim_buf_clear_namespace(buf, markers_ns, 0, -1)
     state.top_marks, state.label_signature, state.separator_cells = {}, nil, {}
+    state.footer_marks, state.footer_cells, state.footer_gaps = {}, {}, {}
     local count = api.nvim_buf_line_count(buf)
     for index, cell in ipairs(list) do
       local first = cell_start(cell, count, state.show_metadata)
@@ -207,6 +299,11 @@ local function prepare(buf, state)
         })
       end
     end
+    for _, footer in ipairs(wanted_footers) do
+      footer = copy(footer)
+      footer.col = #(api.nvim_buf_get_lines(buf, footer.row, footer.row + 1, false)[1] or '')
+      state.footer_marks[footer.cell] = footer
+    end
     for _, win in ipairs(vim.fn.win_findbuf(buf)) do
       local row = api.nvim_win_get_cursor(win)[1]
       for _, cell in ipairs(list) do
@@ -217,6 +314,7 @@ local function prepare(buf, state)
     end
   end
   top_labels(buf, state, editor)
+  footer_labels(buf, state, columns)
   metadata(buf, state)
   return list, out
 end
@@ -304,7 +402,16 @@ local function normal_frames(win, buf, list, out, frames)
   end
   local cached = windows[win]
   local function style(frame)
-    if frame.kind ~= 'input' then frame.color = state.output_accent; return end
+    if frame.kind ~= 'input' then
+      frame.color = state.output_accent
+      frame.footer_gaps = nil
+      local gap = state.footer_gaps and state.footer_gaps[frame.cell]
+      if vim.g.neovide_native_notebook_footer == true and gap then
+        frame.footer_gaps = { { col = (info.textoff or 0) + gap.col - frame.rect.col - 0.1,
+          width = gap.width + 0.2 } }
+      end
+      return
+    end
     frame.color = state.accent
     frame.label_gaps = nil
     for _, gap in ipairs(state.label_gaps and state.label_gaps[frame.cell] or {}) do
@@ -361,7 +468,8 @@ local function normal_frames(win, buf, list, out, frames)
       local offset = offsets[row] or 0
       local output = wanted[d.ns_id .. ':' .. mark[1]]
       local separator = d.ns_id == separator_ns and state.separator_cells[mark[1]]
-      if output or separator then
+      local footer = d.ns_id == footer_ns and state.footer_cells[mark[1]]
+      if output or separator or footer then
         local top = row_at(row + 1)
         if d.virt_lines_above then
           local total = 0
@@ -373,18 +481,24 @@ local function normal_frames(win, buf, list, out, frames)
         top = top + offset
         if separator then dividers[separator] = top + 0.5
         else
-          image_areas[d.ns_id .. ':' .. mark[1]] = {
-            row = top, col = text_left + 0.3,
-            width = math.max(1, left + width - text_left - 0.6),
-          }
+          if output then
+            image_areas[d.ns_id .. ':' .. mark[1]] = {
+              row = top, col = text_left + 0.3,
+              width = math.max(1, left + width - text_left - 0.6),
+            }
+          end
           -- A cell owns outputs by their source anchor, never by mark identity or
           -- screen overlap. Several marks extend the same outer envelope in their
           -- real display order; they do not create neighboring rounded boxes.
           for index, cell in ipairs(list) do
-            if row + 1 >= math.max(1, cell.header > 0 and cell.header or cell.first)
-                and row + 1 <= cell.finish then
+            if footer == index or (not footer
+                and row + 1 >= math.max(1, cell.header > 0 and cell.header or cell.first)
+                and row + 1 <= cell.finish) then
               local rect = outer[index].rect
-              local bottom = math.max(rect.row + rect.height, top + #d.virt_lines + 0.2)
+              -- 新原生能力把末行胶囊中心落在底边线上；旧 GUI 保持行内安全回退。
+              local end_row = footer and vim.g.neovide_native_notebook_footer == true
+                and top + 0.5 or top + #d.virt_lines + 0.2
+              local bottom = math.max(rect.row + rect.height, end_row)
               rect.height = bottom - rect.row
               break
             end
@@ -409,6 +523,8 @@ local function normal_frames(win, buf, list, out, frames)
   -- Keep offscreen cells too so they can enter the viewport without another RPC.
   local origin = api.nvim_win_get_position(win)
   cached.model_key, cached.frames, cached.image_areas = copy(key), {}, image_areas
+  local reference = math.max(1, math.min(info.topline, api.nvim_buf_line_count(buf)))
+  cached.viewport = { line = reference, row = row_at(reference) - origin[1] }
   for _, area in pairs(image_areas) do
     area.row, area.col = area.row - origin[1], area.col - origin[2]
     area.clip = copy(clip)
@@ -424,6 +540,28 @@ local function normal_frames(win, buf, list, out, frames)
     style(frame)
     cached.frames[#cached.frames + 1] = copy(frame)
   end
+end
+-- 只读取得当前逻辑 viewport 中的输出外框。布局快照刻意不随滚轮重建，
+-- 因此用同一个真实文本参考行校正滚动差；不移动原窗口或修改输出。
+local function output_frame_geometry(win, buf, cell)
+  if not api.nvim_win_is_valid(win) or api.nvim_win_get_buf(win) ~= buf or not states[buf] then return end
+  local cached = windows[win]
+  local clip, info = window_geometry(win)
+  if not cached or not cached.viewport or not clip then return end
+  local row_at = line_geometry(win, info, clip)
+  local origin = api.nvim_win_get_position(win)
+  local delta = row_at(cached.viewport.line) - origin[1] - cached.viewport.row
+  for _, frame in ipairs(cached.frames or {}) do
+    if frame.kind == 'output' and frame.cell == cell then
+      local rect = copy(frame.rect)
+      rect.row, rect.col = rect.row + origin[1] + delta, rect.col + origin[2]
+      return { rect = rect, clip = copy(clip), cell = cell }
+    end
+  end
+end
+function M.output_frame_geometry(win, buf, cell)
+  M.refresh()
+  return output_frame_geometry(win, buf, cell)
 end
 -- The same measurement/order and output epoch used by the green frame. Image
 -- positions remain document-local while the native viewport animates scrolling.
@@ -471,8 +609,22 @@ function M.refresh()
           end
           local local_clip = copy(clip)
           local_clip.row, local_clip.col = clip.row - origin[1], clip.col - origin[2]
+          local aligned = vim.w[win].glow_notebook_output_frame
+          if type(aligned) ~= 'table' or type(aligned.row) ~= 'number' or type(aligned.col) ~= 'number'
+              or type(aligned.width) ~= 'number' or type(aligned.height) ~= 'number'
+              or aligned.width <= 0 or aligned.height <= 0 then aligned = nil end
+          if aligned then
+            -- 浮窗的整数顶行从接缝上方半格开始，会遮住原输入框的末段竖边。
+            -- 顶边与圆角在 clip 外，仅补该半格两侧；绿色接缝随后覆盖端点。
+            frames[#frames + 1] = { kind = 'input', overlay = true, join = 'top',
+              rect = { row = aligned.row - 2, col = aligned.col, width = aligned.width, height = 2 },
+              clip = local_clip, anchor = { window = win, epoch = model.epoch, scroll = false },
+              active = false, dark = vim.o.background == 'dark',
+              color = require('config.media.notebook_edit').cell_accent() }
+          end
           frames[#frames + 1] = { kind = 'output', overlay = true,
-            rect = { row = local_clip.row + 0.08, col = local_clip.col + 0.12, width = clip.width - 0.24, height = clip.height - 0.16 },
+            join = aligned and 'bottom' or nil,
+            rect = aligned and copy(aligned) or { row = local_clip.row + 0.08, col = local_clip.col + 0.12, width = clip.width - 0.24, height = clip.height - 0.16 },
             clip = local_clip, anchor = { window = win, epoch = model.epoch, scroll = false },
             active = win == api.nvim_get_current_win(), dark = vim.o.background == 'dark',
             color = require('config.media.notebook_edit').output_accent() }
@@ -491,11 +643,92 @@ local function schedule()
   pending = true
   vim.schedule(M.refresh)
 end
+local function output_mouse()
+  local mouse = vim.fn.getmousepos()
+  local win = mouse.winid
+  if not win or win == 0 or not api.nvim_win_is_valid(win)
+      or api.nvim_win_get_config(win).relative ~= '' then return false end
+  local buf = api.nvim_win_get_buf(win)
+  if not states[buf] then return false end
+  -- 虚拟输出行的 mouse.line 会落到相邻真实行；按当前屏幕外框命中，
+  -- 只选中所属单元格，不执行展开，也不改动任何输出或全局鼠标映射。
+  local row, col = mouse.screenrow - 0.5, mouse.screencol - 0.5
+  M.refresh()
+  for index, cell in ipairs(cells(buf)) do
+    local geometry = output_frame_geometry(win, buf, index)
+    if geometry then
+      local rect, clip = geometry.rect, geometry.clip
+      if row >= math.max(rect.row, clip.row) and row <= math.min(rect.row + rect.height, clip.row + clip.height)
+          and col >= math.max(rect.col, clip.col) and col < math.min(rect.col + rect.width, clip.col + clip.width) then
+        local target = cell.first <= cell.last and cell.last
+          or cell_start(cell, api.nvim_buf_line_count(buf), states[buf].show_metadata)
+        return { win = win, buf = buf, row = target }
+      end
+    end
+  end
+  return false
+end
+
+local function select_output_mouse(selected)
+  if not selected or not api.nvim_win_is_valid(selected.win)
+      or api.nvim_win_get_buf(selected.win) ~= selected.buf then return end
+  api.nvim_set_current_win(selected.win)
+  api.nvim_win_set_cursor(selected.win, { math.min(selected.row, api.nvim_buf_line_count(selected.buf)), 0 })
+  schedule()
+end
+function M.finish_output_mouse()
+  local selected = M.pending_output_mouse
+  M.pending_output_mouse = nil
+  select_output_mouse(selected)
+end
+
+local function mouse_mapping(buf, state)
+  if state.mouse_mapping then return end
+  state.mouse_mapping = true
+  for _, mode in ipairs({ 'n', 'i', 'x' }) do
+    local current_mode = mode
+    local previous_map
+    for _, mapping in ipairs(api.nvim_buf_get_keymap(buf, mode)) do
+      if mapping.lhs == '<LeftMouse>' then
+        -- 模块热加载不把上一版自身映射叠进回放链。
+        if mapping.desc ~= '选中点击的 Notebook 输出单元格' then previous_map = mapping end
+        break
+      end
+    end
+    if not previous_map then
+      for _, mapping in ipairs(api.nvim_get_keymap(mode)) do
+        if mapping.lhs == '<LeftMouse>' then previous_map = mapping; break end
+      end
+    end
+    vim.keymap.set(mode, '<LeftMouse>', function()
+      local selected = output_mouse()
+      if selected then
+        if current_mode == 'n' then select_output_mouse(selected); return end
+        -- 点击输出退出 i/Visual 后再选源码；普通点击不退出当前模式。
+        M.pending_output_mouse = selected
+        local keys = '<Esc><Cmd>lua require("config.media.notebook_ui").finish_output_mouse()<CR>'
+        api.nvim_feedkeys(api.nvim_replace_termcodes(keys, true, false, true), 'ni', false)
+        return
+      end
+      -- 普通代码/其他窗口点击继续使用原映射或原生鼠标；模式与拖选保持原状。
+      if previous_map and type(previous_map.callback) == 'function' then
+        local result = previous_map.callback()
+        if previous_map.expr ~= 1 or type(result) ~= 'string' then return end
+        api.nvim_feedkeys(api.nvim_replace_termcodes(result, true, false, true), 'ni', false)
+        return
+      end
+      local keys = previous_map and previous_map.rhs or '<LeftMouse>'
+      api.nvim_feedkeys(api.nvim_replace_termcodes(keys, true, false, true), 'ni', false)
+    end, { buffer = buf, silent = true, desc = '选中点击的 Notebook 输出单元格' })
+  end
+end
+
 function M.attach(buf)
   buf = buf or api.nvim_get_current_buf()
   if not available() or not api.nvim_buf_is_valid(buf) then return false end
   M.setup()
   states[buf] = states[buf] or { show_metadata = false }
+  mouse_mapping(buf, states[buf])
   schedule()
   return true
 end

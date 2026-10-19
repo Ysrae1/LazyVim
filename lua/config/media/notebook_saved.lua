@@ -22,6 +22,11 @@ local function request(buf, action, ...)
   if not available() then return false end
   local args = { ... }
   local ok, result = pcall(function()
+    -- nvim_buf_call restores the previous window, which would undo this
+    -- deliberate focus transition into the saved output's Molten popup.
+    if action == "enter" and api.nvim_get_current_buf() == buf then
+      return vim.fn.GlowNotebookSavedOutputs(action, buf, unpack(args))
+    end
     return api.nvim_buf_call(buf, function() return vim.fn.GlowNotebookSavedOutputs(action, buf, unpack(args)) end)
   end)
   if not ok then

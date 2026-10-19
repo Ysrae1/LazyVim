@@ -64,7 +64,8 @@ archive/
 - 改语法颜色：`config/appearance/themes/`；改插件颜色映射：`config/appearance/ui.lua`、`completion.lua`、`fff.lua`；复制反馈：`yank.lua`。
 - 改光标行、同名引用、Visual 与多光标选区：`config/appearance/editor_highlights.lua`，颜色、透明度、样式和行为均有中文注释。`references.outline` 控制新版 Neovide 的细框，`references.style.sp` 设置框色；旧前端保留底色。它会在主题和透明处理后重新应用。
 - 改光标本体颜色：两份主题的 `polish_hl.defaults.Cursor`；`bg` 为光标色，`fg` 为覆盖字符色。Neovide 已显式绑定此组，保留各模式形状和终端的 `TermCursor`。
-- 工具弹窗统一实心且不加 backdrop；通用策略在 `config/appearance/popups.lua`，底色使用主题已有 `darker_black`。主编辑区、侧栏和 Dashboard 内嵌终端仍保留各自材质。
+- 浮窗材质与透明度逐类设置在 `config/appearance/popup_materials.lua`：`opaque` 使用原实心底色，`editor` 跟随主编辑区，`custom` 独立设置 `blend=0..100` 和可选背景色。Notebook 输出默认跟随编辑区，其他类别保持实心；保存后执行 `:lua require('config.appearance.popup_materials').reload()`。通用策略仍在 `popups.lua`，不加 backdrop，也不改变主编辑区、侧栏、Dashboard 内嵌终端和底栏材质。
+- Notebook 输出：点击内联输出可选中对应单元格，`空格 j o` 从原位置向下展开；`h/l` 左右滚动，`j/k` 或滚轮上下滚动，`v/V` 选中后 `y` 复制，`空格 y` 复制到系统剪贴板。`q/Esc`、点击框外或在框外滚动可收起。仅实际折叠／裁切时显示底边快捷键胶囊；底边嵌入需支持该能力的新 Neovide，旧前端安全回退。
 - 弹窗文字集中在 `config/appearance/popup_text.lua`：正文、路径前缀、说明、计数、右上角消息正文／嵌入弱色／标题各自设置 Light/Dark，`overrides` 可按组单独改色。覆盖 Snacks 选择器、Lazy、Mason、FFF、WhichKey、Telescope 和 Noice；消息内的弱色只改通知窗口，不影响全局代码注释。保存后执行 `:lua require('config.appearance.popup_text').reload()`。
 - 改字体、缩放和 Glow：`config/platform/neovide.lua`；改 Mac 快捷键：`macos_keymaps.lua`。
 - 改具体插件：到 `plugins/` 的对应分类查找，例如 `navigation/neo_tree.lua`、`languages/vimtex.lua`、`ai/avante.lua`。增加配置后在 `plugins/init.lua` 明确登记，保留原有导入顺序。

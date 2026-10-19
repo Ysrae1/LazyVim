@@ -268,6 +268,13 @@ function M.refresh_title_colors()
   end
   vim.api.nvim_set_hl(0, "GlowNotebookRunValue", { fg = cell_accent, bg = surface })
   vim.api.nvim_set_hl(0, "GlowNotebookRunValueCap", { fg = surface, bg = "NONE" })
+  -- 输出底边控件与绿色边框使用同一 RGB，独立于顶栏 CELLS 的配色。
+  -- 普通字号；图标段实心，按键段保留原胶囊底材。
+  local output_accent = M.output_accent()
+  vim.api.nvim_set_hl(0, "GlowNotebookExpand", { fg = solid_ink, bg = output_accent, bold = true })
+  vim.api.nvim_set_hl(0, "GlowNotebookExpandCap", { fg = output_accent, bg = "NONE" })
+  vim.api.nvim_set_hl(0, "GlowNotebookExpandValue", { fg = output_accent, bg = surface })
+  vim.api.nvim_set_hl(0, "GlowNotebookExpandValueCap", { fg = surface, bg = "NONE" })
 end
 
 local function fit_text(text, width)
@@ -669,14 +676,13 @@ end
 function M.output()
   local session = sessions[vim.api.nvim_get_current_buf()]
   if not session then return end
-  if not session.ready then
-    if not require("config.media.notebook_saved").enter(session.buf) then notify("当前单元格没有已保存的输出。") end
-    return
-  end
-  -- Molten's BufLeave hook clears its output window. Suppress that hook during
-  -- the deliberate source-to-output focus transition, as upstream recommends.
-  local ok, err = pcall(vim.cmd, { cmd = "MoltenEnterOutput", mods = { noautocmd = true } })
-  if not ok then notify("无法打开单元格输出：" .. tostring(err)) end
+  local ok, err = require("config.media.notebook_output").enter(function()
+    if not session.ready then return require("config.media.notebook_saved").enter(session.buf) end
+    -- Molten's BufLeave hook clears its output window. Suppress that hook during
+    -- the deliberate source-to-output focus transition, as upstream recommends.
+    vim.cmd({ cmd = "MoltenEnterOutput", mods = { noautocmd = true } })
+  end)
+  if not ok then notify(err and ("无法打开单元格输出：" .. err) or "当前单元格没有可查看的输出。") end
 end
 
 function M.interrupt()
@@ -762,7 +768,7 @@ local function attach(buf, reload)
   map("i", "<S-CR>", function() vim.cmd.stopinsert(); vim.schedule(M.run) end, "运行 Notebook 单元格")
   map("n", "<localleader>nr", M.run, "运行当前单元格")
   map("n", "<localleader>na", M.run_all, "运行所有代码单元格")
-  map("n", "<localleader>no", M.output, "查看单元格输出")
+  map("n", "<localleader>no", M.output, "滚动查看单元格输出")
   map("n", "<localleader>ni", M.interrupt, "中断 Notebook 内核")
   map("n", "<localleader>nk", M.kernel, "启动 Notebook 内核")
   map("n", "<localleader>nc", function() M.add("code") end, "添加代码单元格")
@@ -770,7 +776,7 @@ local function attach(buf, reload)
   map("n", "<leader>jk", M.kernel, "选择 Notebook 内核")
   map("n", "<leader>jr", M.run, "运行当前单元格")
   map("n", "<leader>jA", M.run_all, "运行所有代码单元格")
-  map("n", "<leader>jo", M.output, "查看单元格输出")
+  map("n", "<leader>jo", M.output, "滚动查看单元格输出")
   map("n", "<leader>ji", M.interrupt, "中断 Notebook 内核")
   map("n", "<leader>j00", M.restart, "重启 Notebook 内核")
   map("n", "<leader>ja", function() M.add("code", "above") end, "上方插入代码单元格")
@@ -942,7 +948,7 @@ function M.setup()
     GlowNotebook = { function(args) M.open(args.args ~= "" and args.args or vim.api.nvim_buf_get_name(0)) end, "?", "打开原生可编辑 Notebook" },
     GlowNotebookRun = { M.run, 0, "运行当前代码单元格" },
     GlowNotebookRunAll = { M.run_all, 0, "运行所有代码单元格" },
-    GlowNotebookOutput = { M.output, 0, "查看原生单元格输出" },
+    GlowNotebookOutput = { M.output, 0, "滚动查看原生单元格输出" },
     GlowNotebookInterrupt = { M.interrupt, 0, "中断 Notebook 内核" },
     GlowNotebookRestart = { M.restart, 0, "重启 Notebook 内核" },
     GlowNotebookKernel = { function(args) M.kernel(args.args) end, "?", "选择或切换 Notebook Python 内核" },

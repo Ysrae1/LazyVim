@@ -1,4 +1,4 @@
--- 普通浮窗使用实心底材；主窗口、侧栏和 Dashboard 内嵌终端的玻璃材质独立保留。
+-- 浮窗底材最终覆盖层；可手调设置集中在 popup_materials.lua。
 local M = {}
 local bases = { "Normal", "NormalNC", "NormalFloat", "FloatBorder" }
 
@@ -70,14 +70,22 @@ local function is_dashboard(filetype, mapping)
   return false
 end
 
-local function solid(value, normal, popup, base)
+local function chrome(name)
+  -- laststatus=3 的全局底栏也借用当前浮窗 namespace，不能把这些组变成实心。
+  return name:match("^St_") or name:match("^StatusLine") or name:match("^WinBar")
+    or name:match("^TabLine") or name:match("^Tb") or name:match("^BufferLine")
+end
+
+local function material(value, normal, popup, policy, base)
   value = vim.deepcopy(value)
   if base then
     -- 反色基础组先还原其实际前景，避免换底材后又被反色交换回来。
     if value.reverse then value.fg, value.reverse = value.bg or normal.bg, nil end
-    value.fg, value.bg, value.blend = value.fg or normal.fg, popup, 0
-  elseif value.blend and value.blend > 0 or value.bg and value.bg == normal.bg then
-    if value.bg == normal.bg then value.bg = popup end
+    value.fg, value.bg, value.blend = value.fg or normal.fg, policy.bg, policy.blend
+  elseif value.bg and (value.bg == normal.bg or value.bg == popup) then
+    value.bg, value.blend = policy.bg, policy.blend
+  elseif value.blend and value.blend > 0 then
+    -- 选中块等独立语义背景仍保持清晰，不把整幅文字与背景一起混合。
     value.blend = 0
   end
   return value
@@ -103,13 +111,18 @@ function M.apply()
   local normal = resolve_global("Normal")
   local popup = background(normal.bg, global)
   if not popup then return end
-  local sparse, applied = {}, {}
-  for name in pairs(global) do
-    local value = resolve_global(name)
-    if value.bg and value.bg == normal.bg or value.blend and value.blend > 0 then
-      sparse[name] = solid(value, normal, popup)
+  local profiles = require("config.appearance.popup_materials")
+  -- 内建 Pmenu 不在 nvim_list_wins 中；它的基础底材组使用同一个菜单配置。
+  -- pumblend=0 保持前景原样，背景混合交给高亮 blend / Neovide。
+  local completion = profiles.resolve("completion_menu", normal, popup)
+  for _, name in ipairs({ "Pmenu", "PmenuSbar" }) do
+    if global[name] then
+      local attrs = material(resolve_global(name), normal, popup, completion, true)
+      vim.api.nvim_set_hl(0, name, attrs)
+      global[name] = attrs
     end
   end
+  local sparse_cache, applied = {}, {}
 
   for _, win in ipairs(vim.api.nvim_list_wins()) do
     local config = vim.api.nvim_win_get_config(win)
@@ -132,24 +145,45 @@ function M.apply()
         end
         local original = serialize(mapping)
         if vim.wo[win].winhighlight ~= original then vim.wo[win].winhighlight = original end
+        local profile = profiles.classify(win, mapping)
+        local policy = profiles.resolve(profile, normal, popup)
+        local material_key = policy.mode .. ":" .. policy.bg .. ":" .. policy.blend
+        if not sparse_cache[material_key] then
+          local sparse = {}
+          for name in pairs(global) do
+            local value = resolve_global(name)
+            if chrome(name) then
+              -- 显式保留原始 chrome 样式，链接也不能通过局部 Normal 换底色。
+              sparse[name] = vim.deepcopy(value)
+            elseif value.bg and (value.bg == normal.bg or value.bg == popup) or value.blend and value.blend > 0 then
+              sparse[name] = material(value, normal, popup, policy)
+            end
+          end
+          sparse_cache[material_key] = sparse
+        end
+        local sparse = sparse_cache[material_key]
         local text_overrides = require("config.appearance.popup_text").window_overrides(filetype, mapping)
         -- 同样的 NormalFloat 映射也可能同时用于通知和代码预览，不能共享局部弱色覆盖。
         local text_policy = next(text_overrides) and ":notification" or ""
-        local namespace = vim.api.nvim_create_namespace("GlowPopupMaterial:" .. vim.fn.sha256(source .. ":" .. original .. text_policy))
+        local namespace = vim.api.nvim_create_namespace("GlowPopupMaterial:" .. vim.fn.sha256(source .. ":" .. original .. text_policy .. ":" .. profile))
         if not applied[namespace] then
           applied[namespace] = true
           local private = source > 0 and read(source) or {}
           local resolve = resolver(global, private)
+          local source_normal = private.Normal and next(private.Normal) and resolve("Normal") or resolve(mapping.Normal or "Normal")
           local values = vim.deepcopy(sparse)
           -- 插件自己的语义前景、背景与样式优先；只取消其背景透明度。
           for name, value in pairs(private) do
-            values[name] = (value.link and not sparse[name]) and value or solid(resolve(name), normal, popup)
+            if not chrome(name) then
+              values[name] = (value.link and not sparse[name]) and value or material(resolve(name), source_normal, popup, policy)
+            end
           end
           -- Namespace 优先于 winhighlight，因此将全部原映射复现到该 namespace。
           for name, target in pairs(mapping) do
-            if not private[name] or next(private[name]) == nil then values[name] = solid(resolve(target), normal, popup) end
+            if not chrome(name) and (not private[name] or next(private[name]) == nil) then
+              values[name] = material(resolve(target), source_normal, popup, policy)
+            end
           end
-          local source_normal = private.Normal and next(private.Normal) and resolve("Normal") or resolve(mapping.Normal or "Normal")
           for _, name in ipairs(bases) do
             local value
             if private[name] and next(private[name]) then
@@ -161,7 +195,7 @@ function M.apply()
             else
               value = resolve(name)
             end
-            values[name] = solid(value, source_normal, popup, true)
+            values[name] = material(value, source_normal, popup, policy, true)
           end
           for name, attrs in pairs(text_overrides) do
             values[name] = vim.tbl_extend("force", vim.deepcopy(resolve(name)), attrs)
@@ -174,7 +208,8 @@ function M.apply()
         end
         vim.api.nvim_win_set_hl_ns(win, namespace)
         if vim.wo[win].winblend ~= 0 then vim.wo[win].winblend = 0 end
-        vim.w[win].glow_popup_material = { source_namespace = source, namespace = namespace }
+        vim.w[win].glow_popup_material = { source_namespace = source, namespace = namespace,
+          profile = profile, mode = policy.mode }
       end
     end
   end
