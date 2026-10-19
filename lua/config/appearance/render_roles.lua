@@ -8,6 +8,11 @@ function M.groups()
   end
   assign({ "GlowNotebookLanguage", "GlowNotebookMarkdown" }, "enlarged_icon")
   assign({ "AvanteReversedTitle", "AvanteReversedSubtitle", "AvanteReversedThirdTitle" }, "solid_title_cap")
+  -- 底栏端帽外侧使用玻璃底材，内部彩色轮廓仍保持实心。
+  assign({ "St_file_sep", "St_Pos_sep", "St_cwd_sep", "St_lsp_sep", "St_sep_r" }, "solid_title_cap")
+  for _, mode in ipairs({ "Normal", "Visual", "Insert", "Terminal", "NTerminal", "Replace", "Confirm", "Command", "Select" }) do
+    groups["St_" .. mode .. "ModeSep"] = { "solid_title_cap" }
+  end
   for _, suffix in ipairs({ "", "Cap", "Value", "ValueCap" }) do
     groups["GlowNotebookKernel" .. suffix] = { "notebook_kernel" }
     groups["GlowNotebookCells" .. suffix] = { "notebook_actions" }

@@ -3,7 +3,7 @@ local M = {}
 local configured, queued = false, false
 local material_blend = 40 -- Every glass component uses 60% background opacity.
 -- Base surfaces precede aliases, so links which already inherit the requested
--- blend stay links. No syntax, selection, title badge or statusline groups.
+-- blend stay links. Syntax, selections and solid capsule bodies stay opaque.
 local surfaces = {
   'NormalFloat', 'FloatBorder', 'Pmenu', 'PmenuSbar',
   'CmpPmenu', 'CmpDoc', 'CmpBorder', 'CmpDocBorder',
@@ -30,6 +30,22 @@ for _, level in ipairs({ 'Trace', 'Debug', 'Info', 'Warn', 'Error' }) do
   surfaces[#surfaces + 1] = 'SnacksNotifierBorder' .. level
 end
 local rows = { 'CursorLine', 'NeoTreeNormal', 'NeoTreeNormalNC', 'NeoTreeCursorLine' }
+-- 底栏与玻璃组件共用透明度；只处理底材和端帽外侧，胶囊内部保持实心。
+local bottom_bar = {
+  "St_EmptySpace", "St_EmptySpace2",
+  "St_gitIcons", "St_lspError", "St_lspWarning", "St_LspHints", "St_LspInfo",
+  "St_LspMsg", "St_Lsp", "St_file_sep", "St_Pos_sep", "St_cwd_sep", "St_lsp_sep", "St_sep_r",
+}
+local solid_capsules = {}
+for _, mode in ipairs({ "Normal", "Visual", "Insert", "Terminal", "NTerminal", "Replace", "Confirm", "Command", "Select" }) do
+  bottom_bar[#bottom_bar + 1] = "St_" .. mode .. "ModeSep"
+  solid_capsules[#solid_capsules + 1] = "St_" .. mode .. "Mode"
+  solid_capsules[#solid_capsules + 1] = "St_" .. mode .. "ModeText"
+end
+for _, name in ipairs({ "file", "Pos", "cwd", "lsp" }) do
+  solid_capsules[#solid_capsules + 1] = "St_" .. name .. "_bg"
+  solid_capsules[#solid_capsules + 1] = "St_" .. name .. "_txt"
+end
 local resolved_links = {}
 local dashboard_terminal
 local separator_chars = { vert = ' ', horiz = ' ', verthoriz = ' ', vertleft = ' ',
@@ -190,6 +206,22 @@ end
 function M.apply()
   if not vim.g.neovide then return end
   for _, name in ipairs(surfaces) do apply(name, material_blend) end
+  -- 新的底栏试用仅接入原生 Liquid Glass，其他前端保持既有行为。
+  if vim.g.neovide_liquid_glass == true then
+    for _, name in ipairs(bottom_bar) do apply(name, material_blend) end
+    -- StatusLine 的 blend 会参与组合高亮；胶囊内部必须显式覆盖为 0，不能只省略。
+    for _, name in ipairs(solid_capsules) do
+      if vim.fn.hlexists(name) == 1 then
+        local attrs = vim.api.nvim_get_hl(0, { name = name, link = false })
+        if next(attrs) then
+          attrs.blend = 0
+          vim.api.nvim_set_hl(0, name, attrs)
+        end
+      end
+    end
+    -- 新构建支持底部不足一格的像素余量独立透明；不改变编辑区 Normal 的透明度。
+    vim.g.neovide_bottom_margin_opacity = (100 - material_blend) / 100
+  end
   for _, name in ipairs(rows) do
     -- 光标行独立调节，后续材质刷新也不能把用户设置覆盖回统一面板透明度。
     local cursorline = require('config.appearance.editor_highlights').config.cursorline

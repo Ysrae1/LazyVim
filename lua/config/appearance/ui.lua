@@ -129,6 +129,17 @@ function M.apply_selection_style()
   require("config.appearance.editor_highlights").apply_selection_style()
 end
 
+function M.apply_statusline_filename()
+  -- Git 分支名跟随 Neo-tree 普通文件名的前景色，不继承文件树背景或 Git 状态色。
+  local filename = vim.api.nvim_get_hl(0, { name = "NeoTreeFileName", link = false, create = false })
+  local fg = filename.fg or vim.api.nvim_get_hl(0, { name = "Normal", link = false }).fg
+  if fg and vim.fn.hlexists("St_gitIcons") == 1 then
+    local attrs = vim.api.nvim_get_hl(0, { name = "St_gitIcons", link = false })
+    attrs.fg = fg
+    vim.api.nvim_set_hl(0, "St_gitIcons", attrs)
+  end
+end
+
 function M.apply()
   local base46 = package.loaded.base46
   if type(base46) ~= "table" then
@@ -141,6 +152,7 @@ function M.apply()
   vim.cmd("redrawtabline")
 
   local colors = base46.get_theme_tb("base_30")
+  M.apply_statusline_filename()
   require("config.appearance.capsules").apply()
   require("config.appearance.editor_highlights").apply()
   apply_dashboard(base46)
