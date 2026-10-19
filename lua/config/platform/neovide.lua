@@ -4,7 +4,8 @@ if not vim.g.neovide then
   return M
 end
 
-vim.o.guifont = "FiraCode Nerd Font Mono:h16"
+local cjk_font = vim.fn.has("macunix") == 1 and "PingFang SC" or "Noto Sans Mono CJK SC"
+vim.o.guifont = "FiraCode Nerd Font Mono," .. cjk_font .. ":h16"
 vim.opt.linespace = 0
 -- Show the command line on demand instead of reserving an empty footer row.
 vim.o.cmdheight = 0
@@ -31,6 +32,7 @@ vim.g.neovide_refresh_rate = 120
 vim.g.neovide_window_blurred = true
 require("config.platform.glass").setup()
 require("config.appearance.transparency").setup()
+require("config.appearance.render_roles").setup()
 vim.g.neovide_theme = "auto"
 vim.g.neovide_remember_window_size = true
 vim.g.neovide_profiler = false
