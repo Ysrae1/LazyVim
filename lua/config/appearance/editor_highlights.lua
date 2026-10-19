@@ -25,7 +25,7 @@ M.config = {
     debounce = 200, -- 光标停留多久后更新，毫秒；越小响应越快、请求越频繁。
     modes = { "n", "i", "c" }, -- n=普通、i=插入、c=命令行；加 "v" 可在 Visual 时也显示。
     outline = true, -- 新版 Neovide 绘制 1 像素细框；false 关闭。终端及旧前端保留原底色。
-    style = { bg = "light_grey", sp = "blue" }, -- 三类引用共用样式；sp 调节细框颜色。
+    style = { bg = "grey", sp = "blue" }, -- 三类引用共用样式；sp 调节细框颜色。
     text = {}, -- 普通引用 LspReferenceText；例如 { underline = true }。
     read = {}, -- 读取引用 LspReferenceRead；例如 { bg = "one_bg2" }。
     write = {}, -- 写入引用 LspReferenceWrite；例如 { underline = true, sp = "orange" }。

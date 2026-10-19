@@ -1,10 +1,10 @@
 # Neovim 配置 · Neovide Glow 固定版
 
-这套个人配置以 [LazyVim](https://github.com/LazyVim/LazyVim) 为基础，结合 NvChad／Base46 的主题与界面，保留原有 Neo-tree 侧栏、标签栏、终端、Yazi、macOS 快捷键和 Avante AI 侧栏。当前配套环境冻结为 **`glow-stack-20261017-gm2`**，其中的字母雨版本为 **`cmatrix-gm-20261017`**。
+这套个人配置以 [LazyVim](https://github.com/LazyVim/LazyVim) 为基础，结合 NvChad／Base46 的主题与界面，保留原有 Neo-tree 侧栏、标签栏、终端、Yazi、macOS 快捷键和 Avante AI 侧栏。当前配套环境冻结为 **`glow-stack-20261019-gm1`**，其中的字母雨版本为 **`cmatrix-gm-20261017`**。
 
 ## 配色冻结与回滚
 
-当前配色与编辑配置基线为 **[`ayu-colors-20261018-v1`](https://github.com/Ysrae1/LazyVim/tree/ayu-colors-20261018-v1)**，Neovide 仓库中的[便携配置副本](https://github.com/Ysrae1/neovide/tree/ayu-colors-20261018-v1/portable/payload/nvim)使用同名标签。本次冻结源码与配置，原有 `glow-stack-20261017-gm2` 安装包保留。
+当前配色与编辑配置冻结为 **[`glow-stack-20261019-gm1`](https://github.com/Ysrae1/LazyVim/tree/glow-stack-20261019-gm1)**，Neovide 仓库中的[便携配置副本](https://github.com/Ysrae1/neovide/tree/glow-stack-20261019-gm1/portable/payload/nvim)使用同名标签。旧 `ayu-colors-20261018-v1`、gm2 标签与下载均保留。
 
 自定义主题文件为 `lua/config/appearance/themes/ayu_light_customed.lua` 与 `ayu_dark_customed.lua`。两者使用相同字段结构；Base46 的主题标识仍为 `ayu_light`／`ayu_dark`。插件映射、自动浅深切换、Neo-tree 状态色及选区加粗一起保存。
 
@@ -12,14 +12,14 @@
 
 ```sh
 git fetch origin --tags
-git restore --source ayu-colors-20261018-v1 -- lua/config/appearance lua/chadrc.lua
+git restore --source glow-stack-20261019-gm1 -- lua/config/appearance lua/chadrc.lua
 ```
 
 完整版本可通过该标签单独检出；对应插件仍由 `lazy-lock.json` 和 `stable_plugins.lua` 固定。多光标入口及添加编辑点均为 `空格 m`，`Ctrl+p` 撤销新选点；Extend 中可直接使用 `gU`／`gu` 转换选区大小写。
 
 ## 安装与适用范围
 
-优先使用 [Neovide Glow 固定发行包](https://github.com/Ysrae1/neovide/releases/tag/glow-stack-20261017-gm2)，并按 [部署说明](https://github.com/Ysrae1/neovide/blob/glow-stack-20261017-gm2/portable/DEPLOY.md) 操作。说明同时适合人工部署或交给 Codex 协助部署。
+优先使用 [Neovide Glow 固定发行包](https://github.com/Ysrae1/neovide/releases/tag/glow-stack-20261019-gm1)，并按 [部署说明](https://github.com/Ysrae1/neovide/blob/glow-stack-20261019-gm1/portable/DEPLOY.md) 操作。说明同时适合人工部署或交给 Codex 协助部署。
 
 **没有安装过 Neovim 也可以使用总安装包。** 安装器会取得并校验固定版本的 Neovim、插件、Yazi、字母雨和运行库，建立独立环境；只复制本配置目录不能代替完整安装。新电脑仍需先准备部署说明列出的系统工具与引导 Python。
 
@@ -32,7 +32,7 @@ git restore --source ayu-colors-20261018-v1 -- lua/config/appearance lua/chadrc.
 
 发行包记录核心下载的 SHA256、插件提交、Treesitter grammar 和 Mason 工具版本。`lazy-lock.json` 配合 `lua/config/stable_plugins.lua` 使用；插件与语言工具不在日常启动时自动升级。FFF 固定为 **v0.11.0**。
 
-需要升级时，应在独立环境中修改清单、完成相关验证后再形成新版本；不要把手动运行 `:Lazy update` 或 `:MasonUpdate` 当作这份固定版的常规安装步骤。Mason 的顶层版本已固定，但其历史传递依赖没有完整锁定，完整复现的限制详见部署说明。冻结记录见总仓库的 [版本日志](https://github.com/Ysrae1/neovide/blob/glow-stack-20261017-gm2/portable/CHANGELOG.md)。
+需要升级时，应在独立环境中修改清单、完成相关验证后再形成新版本；不要把手动运行 `:Lazy update` 或 `:MasonUpdate` 当作这份固定版的常规安装步骤。Mason 的顶层版本已固定，但其历史传递依赖没有完整锁定，完整复现的限制详见部署说明。冻结记录见总仓库的 [版本日志](https://github.com/Ysrae1/neovide/blob/glow-stack-20261019-gm1/portable/CHANGELOG.md)。
 
 ## 配置目录
 
