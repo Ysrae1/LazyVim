@@ -63,12 +63,14 @@ return {
   polish_hl = {
     defaults = {
       LineNr = { fg = "#B0B0B0" }, -- 相对行号
+      Comment = { fg = ui.light_grey }, -- 普通语法注释，与 Treesitter 注释统一。
     },
     blankline = {
       IblChar = { fg = "#B0B0B0" }, -- 缩进点
     },
     treesitter = {
       -- 显式列出共同映射，便于 Light / Dark 对照调试。
+      ["@comment"] = { fg = ui.light_grey }, -- 普通注释；TODO / warning / note / danger 保留各自强调色。
       ["@function"] = { fg = syntax.base0D },
       ["@function.call"] = { fg = syntax.base0D },
       ["@function.builtin"] = { fg = syntax.base0D },

@@ -13,7 +13,9 @@ function M.render(width, system)
   end
   text = text .. string.rep(" ", width - vim.fn.strdisplaywidth(text))
   local separator = vim.g.neovide and " " or "│"
-  return "%#NeoTreeNormal#" .. text .. "%#NeoTreeWinSeparator#" .. separator
+  -- 拖宽侧栏时，右侧缓冲区按钮可能让整条 tabline 超宽；默认会从开头
+  -- 截掉系统图标。把全局截断点放在侧栏之后，保留标题和材质边界。
+  return "%#NeoTreeNormal#" .. text .. "%#NeoTreeWinSeparator#" .. separator .. "%<"
 end
 
 function M.get()
