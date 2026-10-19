@@ -105,3 +105,11 @@ Neovide GUI 使用 [cmatrix-gm](https://github.com/Ysrae1/cmatrix-gm/tree/cmatri
 Avante 保留原侧栏与快捷键，通过固定版本 Codex ACP 接入 **部署电脑上使用者自己的 ChatGPT 登录**。首次使用按部署说明，在实际后端环境中运行 `codex login` 并完成浏览器授权；WSL 需要在 WSL 中登录。安装包和配置仓库不包含、也不分发 `auth.json`、API 密钥、账号目录或会话。
 
 Markdown／AI 侧栏的公式转换依赖随环境安装的 `pylatexenc`。生成完整 LaTeX PDF 仍需额外安装 TeX Live／MacTeX 及可用的 PDF 查看器；公式显示与完整文档编译是两项功能。
+
+## 致谢
+
+- 配置以 [LazyVim](https://github.com/LazyVim/LazyVim) 和 [LazyVim starter](https://github.com/LazyVim/starter)（Apache-2.0）为基础；界面与主题机制来自 [NvChad](https://github.com/NvChad) 的 ui（GPL-3.0）和 Base46（MIT）。
+- Ayu Light／Dark 配色源自 Ike Ku 的 [ayu](https://github.com/dempfi/ayu)（MIT），经由 Base46 的 ayu 主题，每个颜色再由 Ysrae1 逐一调整。
+- Notebook 的编辑与执行使用 [Molten](https://github.com/benlubas/molten-nvim) 和 [jupytext.nvim](https://github.com/GCBallesteros/jupytext.nvim)。静态预览内嵌 [KaTeX](https://github.com/KaTeX/KaTeX) 与 [markdown-it](https://github.com/markdown-it/markdown-it)（均为 MIT），许可原文见 `lua/config/media/assets/THIRD-PARTY-NOTICES.md`。
+- 字母雨由 [cmatrix-gm](https://github.com/Ysrae1/cmatrix-gm) 提供，改编自 [CMatrix](https://github.com/abishekvashok/cmatrix)（GPL-3.0），并参考 [Unimatrix](https://github.com/will8211/unimatrix) 与 [Gomatrix](https://github.com/GeertJohan/gomatrix) 的效果。
+- 其余插件按 `lazy-lock.json` 固定的提交，从各自仓库安装，并保留各自的许可证。

@@ -1,4 +1,5 @@
 -- Ayu Light：当前配色的本地配置，与另一个主题保持相同字段顺序。 由 chadrc.base46.changed_themes.ayu_light 加载；只影响 Light。
+-- 来源：Ike Ku 的 ayu 配色（https://github.com/dempfi/ayu，MIT），经 NvChad Base46 的 ayu 主题；各颜色由 Ysrae1 逐一调整。
 -- syntax 管语法色；ui 管插件/UI 色；polish_hl 管元素映射。
 -- 保存后执行 :lua package.loaded["config.appearance.themes.ayu_light_customed"]=nil; require("nvconfig").base46.changed_themes.ayu_light=require("config.appearance.themes.ayu_light_customed"); require("base46").load_all_highlights()
 -- 将光标放在元素上执行 :Inspect，可查看实际生效的高亮组。
