@@ -192,6 +192,9 @@ function M.install_reader_guard()
           local ok, err = pcall(original, event)
           vim.api.nvim_buf_set_lines = set_lines
           if not ok then error(err, 0) end
+          -- The pinned reader replaces source via API but never clears its
+          -- synthetic edit flag. A successful disk read begins clean.
+          vim.bo[event.buf].modified = false
           M.complete_notebook_load(event.buf)
         end })
       count = count + 1
@@ -279,6 +282,7 @@ function M.configure_output_adapter()
   end
   vim.fn["remote#host#RegisterPlugin"]("python3", adapter_path, {
     { type = "function", name = "GlowNotebookOutputAdapterInfo", sync = 1, opts = vim.empty_dict() },
+    { type = "function", name = "GlowNotebookSavedOutputs", sync = 1, opts = vim.empty_dict() },
   })
   local group = vim.api.nvim_create_augroup("GlowNotebookOutputAdapter", { clear = true })
   vim.api.nvim_create_autocmd("User", { group = group, pattern = "MoltenInitPost", once = true, callback = function()

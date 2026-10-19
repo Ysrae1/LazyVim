@@ -353,6 +353,22 @@ local function fail(session, message)
   notify(message, vim.log.levels.ERROR)
 end
 
+local function import_saved_outputs(session)
+  if session.imported then return end
+  local restored = session.restore_path
+  local ok, err = pcall(execute, "MoltenImportOutput", { restored or session.path, session.kernel })
+  if not ok then
+    notify("读取保存输出失败：" .. tostring(err))
+    return
+  end
+  session.imported = true
+  require("config.media.notebook_saved").clear(session.buf, true)
+  if restored then
+    vim.fn.delete(restored)
+    session.restore_path = nil
+  end
+end
+
 local function ensure_ready(callback, kernel_name)
   local buf = vim.api.nvim_get_current_buf()
   local session = sessions[buf]
@@ -367,6 +383,7 @@ local function ensure_ready(callback, kernel_name)
     -- ownership, so hiding this Notebook never stops an unrelated session.
     session.kernel, session.ready, session.owned = kernels[1], true, false
     session.pending = nil
+    import_saved_outputs(session)
     title(buf)
     if callback then callback(session) end
     return true
@@ -651,7 +668,11 @@ end
 
 function M.output()
   local session = sessions[vim.api.nvim_get_current_buf()]
-  if not session or not session.ready then notify("先运行单元格或启动内核以读取保存输出。"); return end
+  if not session then return end
+  if not session.ready then
+    if not require("config.media.notebook_saved").enter(session.buf) then notify("当前单元格没有已保存的输出。") end
+    return
+  end
   -- Molten's BufLeave hook clears its output window. Suppress that hook during
   -- the deliberate source-to-output focus transition, as upstream recommends.
   local ok, err = pcall(vim.cmd, { cmd = "MoltenEnterOutput", mods = { noautocmd = true } })
@@ -674,20 +695,29 @@ end
 
 local function export(buf)
   local session = sessions[buf]
-  if not session or not session.ready then return end
+  local dirty = require("config.media.notebook_dirty")
+  local token = dirty.token(buf)
+  if not session or not session.ready then dirty.saved(buf, token); return end
   -- Upstream compares cell contents through Treesitter. Fail visibly before
   -- export if the parser is missing; never claim fresh outputs were saved.
   local parser_ok, parser_error = pcall(vim.treesitter.get_string_parser, "x = 1\n", "python")
   if not parser_ok then
     session.save_error = true
+    dirty.failed(buf)
     title(buf)
-    notify("代码已写入 Notebook，但新输出未保存：Python Treesitter 解析器不可用。" .. tostring(parser_error), vim.log.levels.ERROR)
-    return
+    local message = "代码已写入 Notebook，但新输出未保存：Python Treesitter 解析器不可用。" .. tostring(parser_error)
+    notify(message, vim.log.levels.ERROR)
+    error(message, 0)
   end
   local ok, err = pcall(execute, "MoltenExportOutput", { session.path, session.kernel }, true)
   session.save_error = not ok
+  if ok then dirty.saved(buf, token) else dirty.failed(buf) end
   title(buf)
-  if not ok then notify("Notebook 新输出保存失败：" .. tostring(err), vim.log.levels.ERROR) end
+  if not ok then
+    local message = "Notebook 新输出保存失败：" .. tostring(err)
+    notify(message, vim.log.levels.ERROR)
+    error(message, 0)
+  end
 end
 
 local function describe_navigation(buf)
@@ -716,11 +746,14 @@ local function describe_navigation(buf)
   end)
 end
 
-local function attach(buf)
+local function attach(buf, reload)
   local path = vim.api.nvim_buf_get_name(buf)
   if not M.supports(path) then return end
   if not sessions[buf] then sessions[buf] = { buf = buf, path = path } end
   require("config.media.runtime").ensure_notebook_writer(buf)
+  if not sessions[buf].ready then require("config.media.notebook_saved").attach(buf, path, reload) end
+  if reload then require("config.media.notebook_dirty").detach(buf) end
+  require("config.media.notebook_dirty").attach(buf)
   vim.b[buf].glow_notebook_edit = true
   local function map(mode, keys, action, description)
     vim.keymap.set(mode, keys, action, { buffer = buf, silent = true, desc = description })
@@ -860,6 +893,7 @@ end
 function M.setup()
   if configured then return end
   configured = true
+  require("config.media.notebook_saved").setup()
   M.refresh_title_colors()
   vim.api.nvim_set_hl(0, "GlowNotebookCell", { default = true, link = "CursorLine" })
   vim.api.nvim_set_hl(0, "GlowNotebookLabel", { default = true, link = "Title" })
@@ -873,7 +907,7 @@ function M.setup()
   vim.api.nvim_create_autocmd({ "WinResized", "VimResized" }, { group = group, callback = function()
     for buf in pairs(sessions) do title(buf) end
   end })
-  vim.api.nvim_create_autocmd({ "BufWinEnter", "BufReadPost" }, { group = group, pattern = "*.ipynb", callback = function(event) attach(event.buf) end })
+  vim.api.nvim_create_autocmd({ "BufWinEnter", "BufReadPost" }, { group = group, pattern = "*.ipynb", callback = function(event) attach(event.buf, event.event == "BufReadPost") end })
   vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, { group = group, callback = function(event) decorate(event.buf) end })
   vim.api.nvim_create_autocmd("BufWritePost", { group = group, pattern = "*.ipynb", callback = function(event) export(event.buf) end })
   vim.api.nvim_create_autocmd("User", { group = group, pattern = "MoltenKernelReady", callback = function(event)
@@ -883,18 +917,7 @@ function M.setup()
         session.ready, session.starting = true, false
         vim.schedule(function()
           in_buffer(buf, function()
-            if not session.imported then
-              session.imported = true
-              local restored = session.restore_path
-              local ok, err = pcall(execute, "MoltenImportOutput", { restored or session.path, kernel })
-              if not ok then
-                session.imported = false
-                notify("读取保存输出失败：" .. tostring(err))
-              elseif restored then
-                vim.fn.delete(restored)
-                session.restore_path = nil
-              end
-            end
+            import_saved_outputs(session)
             local pending = session.pending
             session.pending = nil
             title(buf)
@@ -904,23 +927,14 @@ function M.setup()
       end
     end
   end })
-  vim.api.nvim_create_autocmd("BufHidden", { group = group, pattern = "*.ipynb", callback = function(event)
-    vim.schedule(function()
-      local session = sessions[event.buf]
-      if not session or not session.owned or not session.kernel or #vim.fn.win_findbuf(event.buf) > 0 then return end
-      in_buffer(event.buf, function()
-        local kernels = local_kernels()
-        if #kernels == 1 and kernels[1] == session.kernel then
-          pcall(execute, "MoltenDeinit")
-          session.kernel, session.ready, session.starting, session.imported = nil, false, false, false
-          title(event.buf)
-        end
-      end)
-    end)
-  end })
-  vim.api.nvim_create_autocmd("BufWipeout", { group = group, callback = function(event)
+  -- Hidden buffers still own live Notebook state. Bufferline and tab switches
+  -- must retain unsaved outputs, execution counters and the kernel namespace.
+  -- Molten releases its kernel on BufUnload; discard only our descriptor here.
+  vim.api.nvim_create_autocmd({ "BufUnload", "BufDelete", "BufWipeout" }, { group = group, callback = function(event)
     local session = sessions[event.buf]
     if session and session.restore_path then vim.fn.delete(session.restore_path) end
+    require("config.media.notebook_saved").detach(event.buf)
+    require("config.media.notebook_dirty").detach(event.buf)
     sessions[event.buf] = nil
     label_signatures[event.buf] = nil
   end })

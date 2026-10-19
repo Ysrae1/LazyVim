@@ -8,6 +8,7 @@ the original floating image provider remains available.
 from functools import wraps
 import hashlib
 import importlib
+import importlib.util
 import inspect
 from pathlib import Path
 import re
@@ -94,6 +95,18 @@ class _Nvim(_Proxy):
         return _Buffers(self._target.buffers, self._output, self._target)
 
 
+
+_helpers = {}
+
+
+def _sibling(name):
+    if name not in _helpers:
+        spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(name + ".py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _helpers[name] = module
+    return _helpers[name]
+
 def _export_without_duplicate_error_fields(original):
     @wraps(original)
     def export_outputs(nvim, kernel, filepath, overwrite):
@@ -112,13 +125,25 @@ def _export_without_duplicate_error_fields(original):
                     if duplicate.intersection(chunk.extras):
                         restored.append((chunk, chunk.extras))
                         chunk.extras = {key: value for key, value in chunk.extras.items() if key not in duplicate}
-            return original(nvim, kernel, filepath, overwrite)
+            if nvim is None:
+                return original(nvim, kernel, filepath, overwrite)
+            return _sibling("glow_notebook_export").export(nvim, kernel, filepath, overwrite, original)
         finally:
             for chunk, extras in restored:
                 chunk.extras = extras
 
     export_outputs._glow_imported_error_export = True
     return export_outputs
+
+
+def _import_preserving_saved_payload(original):
+    @wraps(original)
+    def import_outputs(nvim, kernel, filepath):
+        result = original(nvim, kernel, filepath)
+        _sibling("glow_notebook_export").capture_import(nvim, kernel, filepath)
+        return result
+    import_outputs._glow_saved_payload = True
+    return import_outputs
 
 
 def _main_thread_position_destructor(original):
@@ -152,6 +177,11 @@ def install():
         position = importlib.import_module("molten.position")
     finally:
         if appended: sys.path.remove(directory)
+    helper_path = Path(__file__).with_name("glow_output_dirty.py")
+    helper_spec = importlib.util.spec_from_file_location("glow_output_dirty", helper_path)
+    helper = importlib.util.module_from_spec(helper_spec)
+    helper_spec.loader.exec_module(helper)
+    helper.install()
     cls = module.OutputBuffer
     original = cls.show_virtual_output
     if getattr(original, "_glow_semantic_output", False): return
@@ -165,6 +195,12 @@ def install():
         # matching/export/error handling and wrap only that existing binding.
         if getattr(package, "export_outputs", None) is original_export:
             package.export_outputs = ipynb.export_outputs
+
+    if not getattr(ipynb.import_outputs, "_glow_saved_payload", False):
+        original_import = ipynb.import_outputs
+        ipynb.import_outputs = _import_preserving_saved_payload(original_import)
+        if getattr(package, "import_outputs", None) is original_import:
+            package.import_outputs = ipynb.import_outputs
 
     destructor = position.DynamicPosition.__del__
     if not getattr(destructor, "_glow_main_thread_cleanup", False):
@@ -206,3 +242,19 @@ except Exception as error:
 @pynvim.function("GlowNotebookOutputAdapterInfo", sync=True)
 def adapter_info(_nvim, _args):
     return _info
+
+
+_saved_module = None
+
+
+@pynvim.function("GlowNotebookSavedOutputs", sync=True)
+def saved_outputs(nvim, args):
+    global _saved_module
+    if not _info["active"]:
+        raise RuntimeError(_info["error"])
+    if _saved_module is None:
+        path = Path(__file__).with_name("glow_saved_outputs.py")
+        spec = importlib.util.spec_from_file_location("glow_saved_outputs", path)
+        _saved_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(_saved_module)
+    return _saved_module.handle(nvim, args)
