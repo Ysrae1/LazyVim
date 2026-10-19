@@ -33,6 +33,17 @@ function M.apply()
 
   -- Reset FFF's private lookup/blended-colour caches without starting its core.
   highlights.setup()
+  -- FFF materializes these foregrounds with `default=true`; replaying setup
+  -- alone retains the previous palette (and its initial bold-only defaults).
+  for name, sources in pairs({
+    FFFFileInfoValue = { "Normal" },
+    FFFFileInfoTotalScore = { "Number", "Constant", "Identifier" },
+    FFFFileInfoMatchType = { "Special", "Statement", "Keyword" },
+  }) do
+    local _, attrs = foreground(sources)
+    attrs.bold = name ~= "FFFFileInfoValue" or nil
+    vim.api.nvim_set_hl(0, name, attrs)
+  end
   local visual = vim.api.nvim_get_hl(0, { name = "Visual", link = false, create = false })
   for suffix, status in pairs(statuses) do
     local target, attrs = foreground(status.groups)

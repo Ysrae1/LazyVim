@@ -63,6 +63,7 @@ return {
   base_30 = ui,
   polish_hl = {
     defaults = {
+      LazyButton = { fg = syntax.base05, bg = ui.one_bg }, -- 管理器未选中选项：正文色，随主题刷新。
       Cursor = { bg = ui.pmenu_bg, fg = syntax.base00 },
       LineNr = { fg = "#B0B0B0" }, -- 相对行号
       Comment = { fg = ui.light_grey }, -- 普通语法注释，与 Treesitter 注释统一。
