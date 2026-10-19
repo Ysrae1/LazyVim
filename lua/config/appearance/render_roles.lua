@@ -19,10 +19,21 @@ function M.groups()
     groups["GlowNotebookMenu" .. suffix] = { "notebook_actions" }
   end
   assign({ "GlowNotebookPrev", "GlowNotebookNext" }, "notebook_actions")
+  local references = require("config.appearance.editor_highlights").config.references
+  if vim.g.neovide_reference_outline_supported and references.enabled and references.outline then
+    assign({ "LspReferenceText", "LspReferenceRead", "LspReferenceWrite" }, "reference_outline")
+  end
   return groups
 end
 
 function M.setup()
+  -- 用户配置可能早于原生能力声明加载；就绪后按当前开关重新声明。
+  local group = vim.api.nvim_create_augroup("GlowHighlightRoles", { clear = true })
+  if not vim.g.neovide_reference_outline_supported then
+    vim.api.nvim_create_autocmd("User", {
+      group = group, pattern = "NeovideHighlightRolesReady", once = true, callback = function() M.setup() end,
+    })
+  end
   local groups = M.groups()
   vim.g.neovide_highlight_roles = groups
   if type(_G.neovide) == "table" and type(_G.neovide.set_highlight_roles) == "function" then

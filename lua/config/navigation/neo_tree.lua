@@ -34,7 +34,10 @@ function M.setup()
         local light = vim.o.background == "light"
         local target = light and light_fade_target() or 0
         if not source.fg then
-            source.fg = vim.api.nvim_get_hl(0, { name = "Normal", link = false }).fg or (light and 0x000000 or 0xffffff)
+            -- 按名称解析 Normal 会跟随当前窗口的 winhighlight，得到只有背景的 NeoTreeNormal。
+            -- 直接读取全局 Normal 的 ID，不经过 synIDtrans，才能继承实际文字色而非回退到黑色。
+            local normal = vim.api.nvim_get_hl_by_id(vim.fn.hlID("Normal"), true)
+            source.fg = normal.foreground or (light and 0x000000 or 0xffffff)
         end
         local group = name .. "GlowFade" .. math.floor(amount * 100)
         local previous = cache[group]

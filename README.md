@@ -15,7 +15,7 @@ git fetch origin --tags
 git restore --source ayu-colors-20261018-v1 -- lua/config/appearance lua/chadrc.lua
 ```
 
-完整版本可通过该标签单独检出；对应插件仍由 `lazy-lock.json` 和 `stable_plugins.lua` 固定。多光标入口为 `空格 m`，`Ctrl+n` 确认选点、`Ctrl+p` 撤销新选点；Extend 中可直接使用 `gU`／`gu` 转换选区大小写。
+完整版本可通过该标签单独检出；对应插件仍由 `lazy-lock.json` 和 `stable_plugins.lua` 固定。多光标入口及添加编辑点均为 `空格 m`，`Ctrl+p` 撤销新选点；Extend 中可直接使用 `gU`／`gu` 转换选区大小写。
 
 ## 安装与适用范围
 
@@ -62,7 +62,9 @@ archive/
 ```
 
 - 改语法颜色：`config/appearance/themes/`；改插件颜色映射：`config/appearance/ui.lua`、`completion.lua`、`fff.lua`；复制反馈：`yank.lua`。
-- 改光标行、光标词同名项和 Visual 选区：`config/appearance/editor_highlights.lua`，颜色、透明度、加粗/下划线、开关与触发规则均有中文注释。默认保留当前效果：光标行 `one_bg`、语义引用 `one_bg3`、选区 `base02` 并加粗。它会在主题和透明处理后重新应用，避免手调被覆盖。
+- 改光标行、同名引用、Visual 与多光标选区：`config/appearance/editor_highlights.lua`，颜色、透明度、样式和行为均有中文注释。`references.outline` 控制新版 Neovide 的细框，`references.style.sp` 设置框色；旧前端保留底色。它会在主题和透明处理后重新应用。
+- 改光标本体颜色：两份主题的 `polish_hl.defaults.Cursor`；`bg` 为光标色，`fg` 为覆盖字符色。Neovide 已显式绑定此组，保留各模式形状和终端的 `TermCursor`。
+- 工具弹窗统一实心且不加 backdrop；通用策略在 `config/appearance/popups.lua`，底色使用主题已有 `darker_black`。主编辑区、侧栏和 Dashboard 内嵌终端仍保留各自材质。
 - 改字体、缩放和 Glow：`config/platform/neovide.lua`；改 Mac 快捷键：`macos_keymaps.lua`。
 - 改具体插件：到 `plugins/` 的对应分类查找，例如 `navigation/neo_tree.lua`、`languages/vimtex.lua`、`ai/avante.lua`。增加配置后在 `plugins/init.lua` 明确登记，保留原有导入顺序。
 

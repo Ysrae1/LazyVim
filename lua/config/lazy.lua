@@ -61,6 +61,7 @@ require("lazy").setup({
   },
 
   ui = {
+    backdrop = 100, -- 不创建管理窗口背后的遮罩层。
     icons = {
       ft = "",
       lazy = "󰂠 ",

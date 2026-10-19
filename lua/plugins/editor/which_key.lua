@@ -1,6 +1,7 @@
 return {
   "folke/which-key.nvim",
   opts = {
+    win = { wo = { winblend = 0 } },
     icons = { separator = "󰁔" },
     spec = {
       { "<leader>t", group = "telescope and toggles" },

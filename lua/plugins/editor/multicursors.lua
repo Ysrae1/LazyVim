@@ -13,7 +13,7 @@ return {
           -- Navigation only moves the real cursor; confirm an edit point separately.
           ["j"] = { method = false, opts = {} },
           ["k"] = { method = false, opts = {} },
-          ["<C-n>"] = { method = mouse.start, opts = { desc = "Add cursor at current position" } },
+          ["<C-n>"] = { method = false, opts = {} }, -- 禁用插件默认选点键；用 Leader+m 添加编辑点。
           ["<C-p>"] = { method = mouse.undo_point, opts = { desc = "Undo last cursor addition" } },
           ["gU"] = { method = function() actions.change_case(true) end, opts = { desc = "Uppercase selections" } },
           ["gu"] = { method = function() actions.change_case(false) end, opts = { desc = "Lowercase selections" } },

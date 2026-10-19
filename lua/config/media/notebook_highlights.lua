@@ -8,6 +8,10 @@ end
 -- The Python provider adapter assigns these groups before Molten's own write.
 -- Changing a theme only changes groups; no output extmarks are rewritten.
 function M.apply()
+  -- Molten 默认把整段选中单元格链接到 CursorLine；仅清除这层选区背景，
+  -- 光标所在行继续使用 editor_highlights.lua 的 CursorLine，边框和输出不变。
+  -- 保留已定义的空组，Molten 初始化时的 hlexists 检查不会重新链接它。
+  vim.api.nvim_set_hl(0, "MoltenCell", {})
   vim.api.nvim_set_hl(0, "MoltenVirtualText", { link = "Normal" })
   local dark = vim.o.background == "dark"
   local palette = {}

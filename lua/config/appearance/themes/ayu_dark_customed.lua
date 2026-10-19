@@ -52,10 +52,12 @@ local ui = {
   grey_fg = "#3D4046", -- 浮窗边框等弱化前景
   grey_fg2 = "#46494F", -- 辅助背景
   light_grey = "#54575D", -- 注释、未激活文字、灰色图标
+  mid_fg = "#696A68", -- base04 与 base05 的 RGB 中间色；可用 ui.mid_fg，尚未绑定高亮。
   line = "#24272D", -- 分隔线、默认缩进点
   statusline_bg = "#12151B", -- 底栏背景
   lightbg = "#24272D", -- 辅助背景
-  folder_bg = "#98A3AF", -- 旧文件树集成的文件夹色
+  folder_bg = "#566370", -- 旧文件树集成的文件夹色
+  visual_selection = "#1D3A61",
 }
 
 return {
@@ -63,8 +65,15 @@ return {
   base_30 = ui,
   polish_hl = {
     defaults = {
+      Cursor = { bg = ui.pmenu_bg, fg = syntax.base00 },
       LineNr = { fg = ui.grey }, -- 相对行号
       Comment = { fg = ui.light_grey }, -- 普通语法注释，与 Treesitter 注释统一。
+    },
+    ["neo-tree"] = {
+      NeoTreeCursorLine = {
+        bg = ui.folder_bg, -- 文件树选中行背景。
+        blend = vim.g.neovide and 60 or nil, -- 独立背景透明度：0=不混合，100=全透明；仅 Neovide，删掉此项则跟随 material_blend。
+      },
     },
     blankline = {
       IblChar = { fg = ui.line }, -- 缩进点

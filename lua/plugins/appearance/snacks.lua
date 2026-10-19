@@ -151,8 +151,12 @@ return {
       -- 同名项的开关、延迟、模式与颜色在 editor_highlights.lua 中集中说明。
       words = require("config.appearance.editor_highlights").words_options(),
       styles = {
+        float = { backdrop = false, wo = { winblend = 0 } }, -- 浮窗类统一取消遮罩与窗口混合。
+        input = { backdrop = false, wo = { winblend = 0 } },
+        notification_history = { backdrop = false, wo = { winblend = 0 } },
         notification = {
-          wo = { wrap = true },
+          backdrop = false,
+          wo = { wrap = true, winblend = 0 },
         },
       },
     },

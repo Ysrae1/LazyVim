@@ -27,7 +27,7 @@ vim.g.neovide_floating_corner_radius = 0.48
 -- Expose the whole-window material through Normal while retaining solid UI
 -- highlights, selections and capsules in their existing theme colors.
 vim.g.neovide_opacity = 1.0
-vim.g.neovide_normal_opacity = 0.78
+vim.g.neovide_normal_opacity = 0.85
 vim.g.neovide_refresh_rate = 120
 vim.g.neovide_window_blurred = true
 require("config.platform.glass").setup()
@@ -97,17 +97,16 @@ local function adjust_scale(delta)
 end
 
 if vim.fn.has("macunix") == 1 then
--- Keep the original zoom shortcuts and apply the saved value during startup.
-vim.keymap.set("n", "<D-->", function()
-  adjust_scale(0.1)
-end, { silent = true, desc = "Increase Neovide scale" })
-vim.keymap.set("n", "<D-9>", function()
-  adjust_scale(-0.1)
-end, { silent = true, desc = "Decrease Neovide scale" })
-vim.keymap.set("n", "<D-0>", function()
-  vim.g.neovide_scale_factor = 1.0
-end, { silent = true, desc = "Reset Neovide scale" })
-
+  -- Keep the original zoom shortcuts and apply the saved value during startup.
+  vim.keymap.set("n", "<D-->", function()
+    adjust_scale(0.1)
+  end, { silent = true, desc = "Increase Neovide scale" })
+  vim.keymap.set("n", "<D-9>", function()
+    adjust_scale(-0.1)
+  end, { silent = true, desc = "Decrease Neovide scale" })
+  vim.keymap.set("n", "<D-0>", function()
+    vim.g.neovide_scale_factor = 1.0
+  end, { silent = true, desc = "Reset Neovide scale" })
 end
 
 M.load_scale_factor()

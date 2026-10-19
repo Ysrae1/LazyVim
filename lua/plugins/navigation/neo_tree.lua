@@ -63,6 +63,7 @@ return {
         default_component_configs = {
           container = {
             enable_character_fade = true,
+            right_padding = 1, -- 右侧状态图标留一格，避免斜体字形伸出侧栏后被裁切。
           },
           indent = {
             indent_size = 2,

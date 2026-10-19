@@ -32,6 +32,7 @@ return {
     opts = {
       ui = {
         border = "rounded",
+        backdrop = 100, -- 不另加背景遮罩。
         icons = {
           package_installed = "󰄬",
           package_pending = "󰁔",
