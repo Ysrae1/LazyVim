@@ -45,7 +45,7 @@ lua/
 │   ├── options.lua · keymaps.lua · autocmds.lua · lazy.lua  # LazyVim 约定入口
 │   ├── appearance/
 │   │   ├── themes/{ayu_light_customed,ayu_dark_customed}.lua                 # Light / Dark 完整调色板
-│   │   └── ui.lua · completion.lua · fff.lua · yank.lua
+│   │   └── editor_highlights.lua · ui.lua · completion.lua · fff.lua · yank.lua
 │   │       base46.lua · startup.lua · terminal.lua · intro.lua
 │   ├── platform/{neovide,macos_keymaps,locale}.lua    # GUI、Command 键、界面语言
 │   ├── navigation/{project_root,neo_tree}.lua              # 项目根目录、侧栏渐隐
@@ -62,10 +62,13 @@ archive/
 ```
 
 - 改语法颜色：`config/appearance/themes/`；改插件颜色映射：`config/appearance/ui.lua`、`completion.lua`、`fff.lua`；复制反馈：`yank.lua`。
+- 改光标行、光标词同名项和 Visual 选区：`config/appearance/editor_highlights.lua`，颜色、透明度、加粗/下划线、开关与触发规则均有中文注释。默认保留当前效果：光标行 `one_bg`、语义引用 `one_bg3`、选区 `base02` 并加粗。它会在主题和透明处理后重新应用，避免手调被覆盖。
 - 改字体、缩放和 Glow：`config/platform/neovide.lua`；改 Mac 快捷键：`macos_keymaps.lua`。
 - 改具体插件：到 `plugins/` 的对应分类查找，例如 `navigation/neo_tree.lua`、`languages/vimtex.lua`、`ai/avante.lua`。增加配置后在 `plugins/init.lua` 明确登记，保留原有导入顺序。
 
 以上 `config/`、`plugins/` 路径均位于 `lua/` 下。`archive/` 中的脚本和插件草稿不会加载；旧偏好文件只供首次迁移读取。
+
+修改 `editor_highlights.lua` 后，执行 `:lua require('config.appearance.editor_highlights').reload()` 可立即重载颜色、加粗/下划线和行背景透明度；光标行开关/范围、同名项延迟/模式、Visual 边界规则等行为设置在下次打开 Neovim 时完整生效。同名项由 Snacks.words 调用语言服务提供语义引用，语言服务不支持时不显示；Visual 选区与搜索高亮彼此独立。
 
 Light / Dark 文件保存后，在 Neovim 依次执行以下两行即可重新读取并应用当前主题：
 

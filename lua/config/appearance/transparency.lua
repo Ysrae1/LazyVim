@@ -190,7 +190,14 @@ end
 function M.apply()
   if not vim.g.neovide then return end
   for _, name in ipairs(surfaces) do apply(name, material_blend) end
-  for _, name in ipairs(rows) do apply(name, material_blend) end
+  for _, name in ipairs(rows) do
+    -- 光标行独立调节，后续材质刷新也不能把用户设置覆盖回统一面板透明度。
+    local cursorline = require('config.appearance.editor_highlights').config.cursorline
+    -- NONE 明确取消行底色，不能再把空高亮物化成带透明度的 Normal 背景。
+    if name ~= 'CursorLine' or (cursorline.style.bg ~= 'NONE' and cursorline.style.bg ~= 'none') then
+      apply(name, name == 'CursorLine' and cursorline.neovide_blend or material_blend)
+    end
+  end
   dashboard_material()
   split_separators()
 end

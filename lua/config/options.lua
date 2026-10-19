@@ -18,8 +18,8 @@ opt.autoindent = true
 -- 防止包裹
 opt.wrap = false
 
--- 光标行
-opt.cursorline = true
+-- 光标行和选区边界统一从这个有注释的入口读取。
+require("config.appearance.editor_highlights").apply_options()
 
 -- 启用鼠标
 opt.mouse:append("a")

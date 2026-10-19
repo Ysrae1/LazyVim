@@ -22,14 +22,12 @@ M.base46 = {
     "yazi",
     "dap",
   },
-  -- Apply after Base46 transparency so the cursor row stays visible in both UIs.
-  hl_override = vim.tbl_extend("force", {
-    CursorLine = { bg = "one_bg" }, -- 光标行对比度提高一档，沿用现有色板
-  }, not vim.g.neovide and {
+  -- 编辑区行/同名项/选区样式在 config.appearance.editor_highlights 统一调节。
+  hl_override = not vim.g.neovide and {
     NeoTreeNormal = { bg = "NONE" },
     NeoTreeNormalNC = { bg = "NONE" },
     NeoTreeWinSeparator = { bg = "NONE" },
-  } or {}),
+  } or {},
 }
 
 M.ui = {

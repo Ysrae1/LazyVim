@@ -126,17 +126,7 @@ local function apply_dashboard(base46)
 end
 
 function M.apply_selection_style()
-  for _, name in ipairs({ "Visual", "VisualNOS", "MultiCursor", "MultiCursorMain" }) do
-    local attrs = vim.api.nvim_get_hl(0, { name = name, link = false, create = false })
-    -- Let unloaded plugins define their colors first; keep all existing color/style fields.
-    if next(attrs) then
-      attrs.bold = true
-      if attrs.cterm then
-        attrs.cterm.bold = true
-      end
-      vim.api.nvim_set_hl(0, name, attrs)
-    end
-  end
+  require("config.appearance.editor_highlights").apply_selection_style()
 end
 
 function M.apply()
@@ -152,7 +142,7 @@ function M.apply()
 
   local colors = base46.get_theme_tb("base_30")
   require("config.appearance.capsules").apply()
-  M.apply_selection_style()
+  require("config.appearance.editor_highlights").apply()
   apply_dashboard(base46)
   apply_mini_icons(colors)
   apply_devicons(base46)

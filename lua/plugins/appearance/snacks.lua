@@ -148,7 +148,8 @@ return {
       quickfile = { enabled = true },
       scroll = { enabled = true },
       statuscolumn = { enabled = true },
-      words = { enabled = true },
+      -- 同名项的开关、延迟、模式与颜色在 editor_highlights.lua 中集中说明。
+      words = require("config.appearance.editor_highlights").words_options(),
       styles = {
         notification = {
           wo = { wrap = true },
