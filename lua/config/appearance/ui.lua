@@ -151,6 +151,7 @@ function M.apply()
   vim.cmd("redrawtabline")
 
   local colors = base46.get_theme_tb("base_30")
+  require("config.appearance.capsules").apply()
   M.apply_selection_style()
   apply_dashboard(base46)
   apply_mini_icons(colors)

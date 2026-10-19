@@ -3,8 +3,9 @@
 -- Like that branch, image transport goes over RPC; decoding belongs to the GUI.
 local M = {}
 local capsule = require("config.media.capsule")
+local transport = require("config.media.image_transport")
 local views, active = {}, {}
-local next_id, pending, configured = 0, false, false
+local pending, configured = false, false
 local formats = { png = true, jpg = true, jpeg = true, gif = true, webp = true, bmp = true, tif = true, tiff = true, ico = true }
 
 function M.supports(path)
@@ -21,7 +22,7 @@ end
 
 local function rpc(method, ...)
   if available() then
-    return pcall(vim.rpcnotify, vim.g.neovide_channel_id, "neovide.image." .. method, ...)
+    return transport.notify("image", method, ...)
   end
   return false
 end
@@ -152,11 +153,15 @@ function M.refresh()
       end
       options(win)
       if available() and not view.id then
-        next_id = next_id + 1
-        view.id, view.width, view.height, view.error = next_id, nil, nil, nil
-        active[view.id] = view
-        message(view, { "正在加载图片…", "", "q / Esc 关闭；Tab / Shift-Tab 切换标签页。" })
-        if not rpc("load", view.id, path) then
+        view.id, view.error = transport.allocate("image")
+        view.width, view.height = nil, nil
+        if not view.id then
+          message(view, { view.error })
+        else
+          active[view.id] = view
+          message(view, { "正在加载图片…", "", "q / Esc 关闭；Tab / Shift-Tab 切换标签页。" })
+        end
+        if view.id and not rpc("load", view.id, path) then
           view.error = "无法连接 Neovide 图片预览。"
           message(view, { view.error })
         end

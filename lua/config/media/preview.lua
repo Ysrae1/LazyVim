@@ -185,6 +185,23 @@ function M.status()
   if not v then return nil end
   return vim.tbl_extend('force',vim.deepcopy(v.status or {}),{kind=v.kind,source=v.source,id=v.id,win=v.win})
 end
+-- Show scope on request; opening local HTML intentionally permits its sibling assets.
+function M.info()
+  local status=M.status()
+  if not status then return end
+  local lines={ '来源：'..(status.url or status.source) }
+  if status.kind=='web' then
+    local root=status.read_root
+    if root==nil then
+      root=not status.source:match('^%a+://') and vim.fs.dirname(status.source) or ''
+    end
+    lines[#lines+1]=root~='' and ('可读取文件夹（含子目录）：'..root) or '未授权读取本地文件夹。'
+    lines[#lines+1]='网页脚本可执行；请仅预览可信内容。'
+  end
+  local text=table.concat(lines,'\n')
+  vim.notify(text,vim.log.levels.INFO,{title='预览信息'})
+  return text
+end
 -- Source-identified targeting avoids sending a SyncTeX result to whichever
 -- unrelated media view happens to be current when its asynchronous CLI ends.
 function M.pdf_sync(source,point,opts)
@@ -267,6 +284,7 @@ function M.open(source,opts)
   map('<D-{>','gT','上一个标签页'); map('<D-}>','gt','下一个标签页')
   map('<C-Tab>','gt','下一个标签页'); map('<C-S-Tab>','gT','上一个标签页')
   map('i',function() M.action('focus') end,'进入原生面板'); map('<CR>',function() M.action('focus') end,'进入原生面板')
+  map('g?',M.info,'预览来源与读取范围')
   if kind=='web' or kind=='pdf' then
     if kind=='pdf' then
       map(']p',function() M.action('next') end,'PDF 下一页'); map('[p',function() M.action('previous') end,'PDF 上一页')
@@ -333,6 +351,7 @@ function M.setup()
   vim.api.nvim_create_user_command('GlowPDF',function(a) M.open(a.args~='' and a.args or vim.api.nvim_buf_get_name(0),{kind='pdf'}) end,{nargs='?',complete='file',desc='原生 PDF 预览'})
   vim.api.nvim_create_user_command('GlowPreviewFocus',function() M.action('focus') end,{desc='进入原生预览面板'})
   vim.api.nvim_create_user_command('GlowPreviewClose',M.close,{desc='关闭原生预览面板'})
+  vim.api.nvim_create_user_command('GlowPreviewInfo',M.info,{desc='预览来源与读取范围'})
   timer=vim.uv.new_timer()
   timer:start(500,500,vim.schedule_wrap(function() for id in pairs(active) do rpc('action',id,'status') end end))
 end

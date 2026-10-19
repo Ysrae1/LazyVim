@@ -2,23 +2,25 @@
 -- File headers supply immediate padding sizes. Decoding and pixels stay in the
 -- native asynchronous Neovide image worker; never request data back from the GUI.
 local M = {}
+local transport = require("config.media.image_transport")
 local api = {}
 local images, active = {}, {}
-local next_id, clock, pending, configured = 1000000, 0, false, false
+local clock, pending, configured = 0, false, false
 local namespace = vim.api.nvim_create_namespace("glow.molten.images")
 -- Created only when the native inline capability is actually used.
 local inline_namespace
 local inline_outputs, inline_revisions = {}, {}
 local cell_metrics
 local uv = vim.uv or vim.loop
-local MAX_ACTIVE, MAX_RECORDS = 8, 128
+local MAX_ACTIVE, MAX_RECORDS = transport.notebook_limit, 128
+local capacity_notified = false
 
 local function available()
   return vim.g.neovide_native_image == true and type(vim.g.neovide_channel_id) == "number"
 end
 
 local function rpc(method, ...)
-  return available() and pcall(vim.rpcnotify, vim.g.neovide_channel_id, "neovide.image." .. method, ...)
+  return available() and transport.notify("molten", method, ...)
 end
 
 local function close(image)
@@ -156,14 +158,16 @@ local function padding(image)
   local count = vim.api.nvim_buf_line_count(image.buffer)
   local row = math.max(0, math.min(image.y, count - 1))
   local height = api.image_size(image.identifier).height
-  if image.padding and image.padding_height == height and image.padding_row == row then return end
+  if image.padding and image.padding_height == height and image.padding_row == row
+      and image.padding_deferred == image.deferred then return end
   local lines = {}
   for _ = 1, height do lines[#lines + 1] = { { "", "Normal" } } end
+  if image.deferred and lines[1] then lines[1] = { { "图像暂缓显示；滚动到输出处重试", "Comment" } } end
   image.padding = vim.api.nvim_buf_set_extmark(image.buffer, namespace, row, 0, {
     id = image.padding, virt_lines = lines, strict = false,
     right_gravity = false, priority = 210,
   })
-  image.padding_height, image.padding_row = height, row
+  image.padding_height, image.padding_row, image.padding_deferred = height, row, image.deferred
 end
 
 local function intersects(a, b)
@@ -220,8 +224,11 @@ local function sync_inline(output)
     if image then
       image.inline_offset = #lines
       local size = api.image_size(identifier)
-      shape[#shape + 1] = { size.width, size.height, size.render_height }
-      for _ = 1, size.height do lines[#lines + 1] = { { '', 'Normal' } } end
+      shape[#shape + 1] = { size.width, size.height, size.render_height, image.deferred == true }
+      for row = 1, size.height do
+        lines[#lines + 1] = image.deferred and row == 1
+          and { { '图像暂缓显示；滚动到输出处重试', 'Comment' } } or { { '', 'Normal' } }
+      end
     end
   end
   local signature = vim.json.encode({ mark[1], shape })
@@ -350,38 +357,84 @@ local function geometry(image, win)
   return view
 end
 
+local function capacity_notice()
+  if capacity_notified then return end
+  capacity_notified = true
+  vim.schedule(function()
+    vim.notify("Notebook 同时显示最多 6 幅图像，为图片／Yazi 共留 2 个交互预览槽；暂缓的输出已保留，滚动到输出处会重试。",
+      vim.log.levels.INFO, { title = "Neovide Glow" })
+  end)
+end
+
 function M.refresh()
   pending = false
   for _, output in pairs(inline_outputs) do sync_inline(output) end
-  local ordered = {}
+  local ordered, selected = {}, {}
   for _, image in pairs(images) do
     if image.visible then ordered[#ordered + 1] = image end
   end
   table.sort(ordered, function(a, b) return a.used > b.used end)
-  local count = 0
+  local count, deferred = 0, false
   for _, image in ipairs(ordered) do
     local win = find_window(image)
     if win and not image.inline then padding(image) end
     local view = win and (image.inline and inline_geometry(image, win) or geometry(image, win))
-    if view and count < MAX_ACTIVE and not image.error then
-      count = count + 1
-      if not image.native_id then
-        next_id = next_id + 1
-        image.native_id = next_id
-        active[next_id] = image
-        if not rpc("load", next_id, image.path) then
+    if view and not image.error then
+      if count < MAX_ACTIVE then
+        count = count + 1
+        selected[image] = view
+      else
+        image.deferred, deferred = true, true
+      end
+    else
+      image.deferred = nil
+    end
+  end
+  -- Return off-screen/older reservations before trying their replacements.
+  -- Retain source paths, output marks and padding so no saved output is lost.
+  for _, image in ipairs(ordered) do
+    if not selected[image] then close(image) end
+  end
+  for _, image in ipairs(ordered) do
+    local view = selected[image]
+    if view then
+      if not image.native_id and (not image.retry_after or uv.now() >= image.retry_after) then
+        local id, err = transport.allocate("molten")
+        image.native_id = id
+        if not id then warn(image, err)
+        else active[id] = image end
+        if id and not rpc("load", id, image.path) then
           close(image)
           warn(image, "无法连接原生图像渲染器")
         end
       end
+      image.deferred = image.retry_after ~= nil and not image.native_id or nil
+      deferred = deferred or image.deferred
       if image.native_id and not vim.deep_equal(image.geometry, view) then
         rpc("show", image.native_id, view)
         image.geometry = view
       end
-    else
-      close(image)
+    end
+    if not image.inline and find_window(image) then padding(image) end
+  end
+  for _, output in pairs(inline_outputs) do sync_inline(output) end
+  if deferred then capacity_notice() end
+end
+
+local capacity_retry_pending = false
+function M.on_capacity_available()
+  local remaining
+  for _, image in pairs(images) do
+    if image.visible and image.retry_after then
+      remaining = math.min(remaining or math.huge, math.max(0, image.retry_after - uv.now()))
     end
   end
+  if not remaining or capacity_retry_pending then return end
+  capacity_retry_pending = true
+  vim.defer_fn(function()
+    capacity_retry_pending = false
+    M.refresh()
+  end, remaining)
 end
 
 local function schedule()
@@ -445,6 +498,7 @@ function api.clear_all()
   for key in pairs(inline_outputs) do M.clear_inline_output(key) end
   for identifier in pairs(images) do api.clear(identifier) end
   images = {}
+  capacity_notified = false
 end
 
 function api.move(identifier, x, y)
@@ -459,9 +513,19 @@ function M.on_status(id, width, height, err)
   if not image or image.native_id ~= id or not image.visible then return end
   if err and err ~= vim.NIL and err ~= "" then
     close(image)
-    warn(image, tostring(err))
+    if transport.is_capacity_error(err) then
+      -- Capacity is transient. Keep this output eligible for later user events
+      -- and released interactive slots, with a bound on retry frequency.
+      image.retry_after, image.deferred = uv.now() + 750, true
+      capacity_notice()
+      if image.inline then
+        local output = inline_outputs[image.owner]
+        if output then sync_inline(output) end
+      else padding(image) end
+    else warn(image, tostring(err)) end
     return
   end
+  image.retry_after, image.deferred = nil, nil
   -- Keep the box used by Molten's synchronous layout stable. The decoder can
   -- discover dimensions absent from a rare-format header, but growing padding
   -- here would exceed the output window height Molten already calculated.

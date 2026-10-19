@@ -1,8 +1,9 @@
 -- Yazi's native Neovide preview is scoped to its embedded instance. A private
 -- config overlays one previewer; the user's standalone Yazi files stay intact.
 local M = {}
+local transport = require("config.media.image_transport")
 local sessions, native, configured = {}, {}, false
-local next_id, pending = 2000000, false
+local pending = false
 local uv = vim.uv or vim.loop
 local event_kind = "neovide-glow-preview"
 local plugin_name = "neovide-glow-native-preview"
@@ -14,7 +15,7 @@ local function available()
 end
 
 local function rpc(method, ...)
-  return available() and pcall(vim.rpcnotify, vim.g.neovide_channel_id, "neovide.image." .. method, ...)
+  return available() and transport.notify("yazi", method, ...)
 end
 
 local function release(session)
@@ -94,10 +95,13 @@ function M.refresh()
       if not view or session.error then release(session)
       else
         if not session.id then
-          next_id = next_id + 1
-          session.id = next_id
-          native[next_id] = session
-          if not rpc("load", next_id, session.path) then release(session) end
+          session.id, session.error = transport.allocate("yazi")
+          if session.id then
+            native[session.id] = session
+            if not rpc("load", session.id, session.path) then release(session) end
+          else
+            vim.notify(session.error, vim.log.levels.WARN, { title = "Neovide Glow" })
+          end
         end
         if session.id and not vim.deep_equal(session.geometry, view) then
           rpc("show", session.id, view)
