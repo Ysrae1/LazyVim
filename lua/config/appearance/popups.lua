@@ -132,7 +132,10 @@ function M.apply()
         end
         local original = serialize(mapping)
         if vim.wo[win].winhighlight ~= original then vim.wo[win].winhighlight = original end
-        local namespace = vim.api.nvim_create_namespace("GlowPopupMaterial:" .. vim.fn.sha256(source .. ":" .. original))
+        local text_overrides = require("config.appearance.popup_text").window_overrides(filetype, mapping)
+        -- 同样的 NormalFloat 映射也可能同时用于通知和代码预览，不能共享局部弱色覆盖。
+        local text_policy = next(text_overrides) and ":notification" or ""
+        local namespace = vim.api.nvim_create_namespace("GlowPopupMaterial:" .. vim.fn.sha256(source .. ":" .. original .. text_policy))
         if not applied[namespace] then
           applied[namespace] = true
           local private = source > 0 and read(source) or {}
@@ -159,6 +162,9 @@ function M.apply()
               value = resolve(name)
             end
             values[name] = solid(value, source_normal, popup, true)
+          end
+          for name, attrs in pairs(text_overrides) do
+            values[name] = vim.tbl_extend("force", vim.deepcopy(resolve(name)), attrs)
           end
           -- 颜色切换时移除失效的旧覆盖，让新主题和全局语义组重新正常继承。
           for name in pairs(read(namespace)) do

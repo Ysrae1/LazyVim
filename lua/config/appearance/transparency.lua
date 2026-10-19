@@ -47,6 +47,39 @@ local popup_surfaces = {
   "LazyNormal",
   "MasonNormal",
 }
+-- 这些组由插件以 `default=true` 链接到公共高亮。底材物化后链接不再存在，
+-- 因而每次都从其声明的源组重取前景，旧会话首次热加载也能恢复。
+local popup_sources = {
+  BlinkCmpMenu = "Pmenu",
+  BlinkCmpMenuBorder = "Pmenu",
+  BlinkCmpDoc = "NormalFloat",
+  BlinkCmpDocBorder = "NormalFloat",
+  BlinkCmpDocSeparator = "NormalFloat",
+  BlinkCmpSignatureHelp = "NormalFloat",
+  BlinkCmpSignatureHelpBorder = "NormalFloat",
+  WhichKeyNormal = "NormalFloat",
+  WhichKeyBorder = "FloatBorder",
+  TelescopeResultsNormal = "TelescopeNormal",
+  TelescopeResultsBorder = "TelescopeBorder",
+  TelescopePreviewNormal = "TelescopeNormal",
+  TelescopePreviewBorder = "TelescopeBorder",
+  SnacksInputNormal = "Normal",
+  SnacksInputBorder = "DiagnosticInfo",
+  NoicePopup = "NormalFloat",
+  NoicePopupBorder = "FloatBorder",
+  NoiceCmdlinePopup = "Normal",
+  NoiceCmdlinePopupBorder = "DiagnosticSignInfo",
+  NoiceCmdlinePopupBorderSearch = "DiagnosticSignWarn",
+  NoiceConfirm = "Normal",
+  NoiceConfirmBorder = "DiagnosticSignInfo",
+  NoiceMini = "MsgArea",
+  NoicePopupmenu = "Pmenu",
+  NoicePopupmenuBorder = "FloatBorder",
+  NoiceSplit = "NormalFloat",
+  NoiceSplitBorder = "FloatBorder",
+  LazyNormal = "NormalFloat",
+  MasonNormal = "NormalFloat",
+}
 local surfaces = {
   "SnacksNormal", "SnacksNormalNC",
   "NeoTreeWinSeparator",
@@ -314,9 +347,30 @@ function M.apply_popup_material()
   if not vim.g.neovide then return end
   local background = require("config.appearance.popups").background()
   local normal = vim.api.nvim_get_hl_by_id(vim.fn.hlID("Normal"), true)
+  local base46, overrides = package.loaded.base46, {}
+  if base46 then
+    for _, groups in pairs(base46.get_theme_tb("polish_hl") or {}) do
+      for name, attrs in pairs(groups) do overrides[name] = attrs end
+    end
+    local config = package.loaded.nvconfig
+    for name, attrs in pairs(config and config.base46.hl_override or {}) do
+      overrides[name] = vim.tbl_extend("force", overrides[name] or {}, attrs)
+    end
+    if base46.turn_str_to_color then overrides = base46.turn_str_to_color(overrides) end
+  end
   for _, name in ipairs(popup_surfaces) do
     if vim.fn.hlexists(name) == 1 then
       local attrs = vim.api.nvim_get_hl_by_id(vim.fn.hlID(name), true)
+      local override = overrides[name] or {}
+      local source = override.link or popup_sources[name]
+      if source then
+        local source_attrs = vim.api.nvim_get_hl_by_id(vim.fn.hlID(source), true)
+        attrs.foreground = source_attrs.foreground or normal.foreground
+      end
+      -- 显式主题／用户前景覆盖仍优先；不把插件正文误当作代码 Comment 调色。
+      if override.fg then
+        attrs.foreground = type(override.fg) == "string" and tonumber(override.fg:gsub("^#", ""), 16) or override.fg
+      end
       attrs.background, attrs.blend = background, 0
       attrs.foreground = attrs.foreground or normal.foreground
       vim.api.nvim_set_hl(0, name, attrs)
@@ -359,6 +413,7 @@ end
 
 function M.apply()
   if not vim.g.neovide then
+    require("config.appearance.popup_text").apply()
     return
   end
   for _, name in ipairs(surfaces) do
@@ -399,6 +454,7 @@ function M.apply()
   end
   dashboard_material()
   split_separators()
+  require("config.appearance.popup_text").apply()
   require("config.appearance.popups").apply()
 end
 

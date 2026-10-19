@@ -26,6 +26,8 @@ return {
     opts = {
       lazy_sync = true,
       layout = { border = "rounded" },
+      -- 文字颜色统一在 config/appearance/popup_text.lua 调节。
+      hl = { normal = "GlowPopupBody", directory_path = "GlowPopupPath", debug = "GlowPopupSecondary" },
       debug = { enabled = false, show_scores = false },
     },
   },
