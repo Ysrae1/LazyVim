@@ -1,3 +1,16 @@
+local windows = vim.fn.has("win32") == 1
+local codex_env = { HOME = vim.env.HOME, PATH = vim.env.PATH }
+if windows then
+  -- ACP passes an explicit environment to uv.spawn. Preserve Windows runtime
+  -- paths while keeping API keys out of this ChatGPT-authenticated child.
+  codex_env = vim.fn.environ()
+  for name in pairs(codex_env) do
+    if name:upper() == "OPENAI_API_KEY" or name:upper() == "CODEX_API_KEY" then codex_env[name] = nil end
+  end
+  codex_env.HOME = codex_env.HOME or vim.env.USERPROFILE
+end
+local adapter = vim.fn.stdpath("data") .. "/codex-acp/node_modules/@agentclientprotocol/codex-acp/dist/index.js"
+
 return {
   {
     "yetone/avante.nvim",
@@ -10,17 +23,14 @@ return {
         codex = {
           -- Use the maintained adapter with the existing ChatGPT login.
           -- Remove API keys only for this process; DeepSeek stays configured below.
-          command = "/usr/bin/env",
-          args = {
+          command = windows and (vim.fn.exepath("node") ~= "" and vim.fn.exepath("node") or "node") or "/usr/bin/env",
+          args = windows and { adapter } or {
             "-u", "OPENAI_API_KEY",
             "-u", "CODEX_API_KEY",
             "/opt/homebrew/bin/node",
-            vim.fn.stdpath("data") .. "/codex-acp/node_modules/@agentclientprotocol/codex-acp/dist/index.js",
+            adapter,
           },
-          env = {
-            HOME = vim.env.HOME,
-            PATH = vim.env.PATH,
-          },
+          env = codex_env,
         },
       },
       selection = {
@@ -63,8 +73,7 @@ return {
       end
     end,
     -- if you want to build from source then do `make BUILD_FROM_SOURCE=true`
-    build = "make",
-    -- build = "powershell -ExecutionPolicy Bypass -File Build.ps1 -BuildFromSource false" -- for windows
+    build = windows and "powershell -NoProfile -ExecutionPolicy Bypass -File Build.ps1 -BuildFromSource false" or "make",
     dependencies = {
       "nvim-treesitter/nvim-treesitter",
       "stevearc/dressing.nvim",
@@ -96,7 +105,8 @@ return {
         opts = {
           file_types = { "markdown", "Avante" },
           latex = {
-            converter = vim.fn.stdpath("data") .. "/latex2text-venv/bin/latex2text",
+            converter = vim.env.GLOW_LATEX2TEXT or (vim.fn.stdpath("data") .. "/latex2text-venv/"
+              .. (windows and "Scripts/latex2text.exe" or "bin/latex2text")),
           },
         },
         ft = { "markdown", "Avante" },

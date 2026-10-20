@@ -161,6 +161,35 @@ local function on_message(event)
   schedule()
 end
 
+local function copy_entry(source, target, ancestors)
+  local metadata = assert(uv.fs_stat(source))
+  if metadata.type == "file" then return assert(uv.fs_copyfile(source, target)) end
+  assert(metadata.type == "directory", "Unsupported Yazi config entry: " .. source)
+  local real = assert(uv.fs_realpath(source))
+  assert(not ancestors[real], "Cyclic Yazi config link: " .. source)
+  ancestors[real] = true
+  vim.fn.mkdir(target, "p", 448)
+  local iterator = assert(uv.fs_scandir(source))
+  while true do
+    local name = uv.fs_scandir_next(iterator)
+    if not name then break end
+    copy_entry(source .. "/" .. name, target .. "/" .. name, ancestors)
+  end
+  ancestors[real] = nil
+end
+
+local function link_entry(source, target)
+  local windows = vim.fn.has("win32") == 1
+  local metadata = windows and uv.fs_stat(source)
+  local linked, err = uv.fs_symlink(source, target,
+    metadata and metadata.type == "directory" and { dir = true } or nil)
+  if linked then return end
+  if not windows then error(err) end
+  -- Windows symlinks may require privileges. Copy only into our private overlay;
+  -- the standalone configuration and plugins remain untouched.
+  copy_entry(source, target, {})
+end
+
 local function overlay(source, target)
   vim.fn.mkdir(target .. "/plugins", "p", 448)
   local iterator = uv.fs_scandir(source)
@@ -170,7 +199,7 @@ local function overlay(source, target)
       if not name then break end
       if name ~= "plugins" and name ~= "yazi.toml" and name ~= "init.lua" then
         local destination = target .. "/" .. name
-        if not uv.fs_lstat(destination) then assert(uv.fs_symlink(source .. "/" .. name, destination)) end
+        if not uv.fs_lstat(destination) then link_entry(source .. "/" .. name, destination) end
       end
     end
   end
@@ -181,7 +210,7 @@ local function overlay(source, target)
       if not name then break end
       local destination = target .. "/plugins/" .. name
       if name ~= plugin_name .. ".yazi" and name ~= "neovide-glow-jxl.yazi" and not uv.fs_lstat(destination) then
-        assert(uv.fs_symlink(source .. "/plugins/" .. name, destination))
+        link_entry(source .. "/plugins/" .. name, destination)
       end
     end
   end
@@ -193,6 +222,7 @@ local function overlay(source, target)
   local python = vim.fn.exepath("python3")
   local ok, runtime = pcall(require, "config.media.runtime")
   if ok and vim.fn.executable(runtime.python()) == 1 then python = runtime.python() end
+  if python == "" and vim.fn.has("win32") == 1 then python = vim.fn.exepath("python") end
   if python == "" then error("Yazi 原生预览配置需要 Python 3.11+（TOML 标准库）。") end
   local output = vim.fn.system({ python, module_dir .. "/yazi/overlay.py", source, target, module_dir .. "/yazi" })
   if vim.v.shell_error ~= 0 then error("无法准备 Yazi 原生预览配置：" .. output) end
@@ -230,7 +260,10 @@ function M.configure(opts)
   opts = opts or {}
   if not available() then return opts end
   M.setup()
-  local source = opts.config_home or vim.env.YAZI_CONFIG_HOME or ((vim.env.XDG_CONFIG_HOME or vim.fn.expand("~/.config")) .. "/yazi")
+  local default_home = vim.fn.has("win32") == 1
+    and ((vim.env.APPDATA or vim.fn.expand("~/AppData/Roaming")) .. "/yazi/config")
+    or ((vim.env.XDG_CONFIG_HOME or vim.fn.expand("~/.config")) .. "/yazi")
+  local source = opts.config_home or vim.env.YAZI_CONFIG_HOME or default_home
   source = vim.fs.normalize(vim.fn.fnamemodify(source, ":p"))
   local target = vim.fn.tempname() .. "-glow-yazi"
   overlays[target] = true
