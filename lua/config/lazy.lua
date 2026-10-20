@@ -77,6 +77,10 @@ require("lazy").setup({
     enabled = false, -- Update deliberately after checking the lockfile.
   },
   performance = {
+    cache = {
+      -- Windows bytecode cache paths can exceed legacy MAX_PATH limits.
+      enabled = vim.fn.has("win32") ~= 1,
+    },
     rtp = {
       -- disable some rtp plugins
       disabled_plugins = {

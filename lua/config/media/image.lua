@@ -249,7 +249,14 @@ function M.close()
     restore(view)
     views[win] = nil
   end
-  if #vim.api.nvim_tabpage_list_wins(0) > 1 then
+  -- Notification floats cannot replace the tab's last ordinary editor window.
+  local ordinary_windows = 0
+  for _, other in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+    local config = vim.api.nvim_win_get_config(other)
+    if config.relative == "" and not config.external then ordinary_windows = ordinary_windows + 1 end
+  end
+  local config = vim.api.nvim_win_get_config(win)
+  if config.relative ~= "" or config.external or ordinary_windows > 1 then
     vim.api.nvim_win_close(win, false)
   else
     vim.cmd.enew()
