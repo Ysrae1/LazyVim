@@ -40,8 +40,8 @@ def dump(table, path=()):
 def main():
     source, target, bridge = map(Path, sys.argv[1:4])
     user_file = source / "yazi.toml"
-    config = tomllib.loads(user_file.read_text()) if user_file.exists() else {}
-    defaults = tomllib.loads((bridge / "defaults-26.5.6.toml").read_text())
+    config = tomllib.loads(user_file.read_text(encoding="utf-8")) if user_file.exists() else {}
+    defaults = tomllib.loads((bridge / "defaults-26.5.6.toml").read_text(encoding="utf-8"))
     plugin = config.setdefault("plugin", {})
     plugin.setdefault("previewers", defaults["plugin"]["previewers"])
     # A dedicated decoder only for the codec absent from this ImageMagick build.
@@ -88,7 +88,7 @@ def main():
             custom = source / "plugins" / (base + ".yazi") / ((sub or "main") + ".lua")
             sync = original == "folder"
             if custom.exists():
-                sync = re.search(r"--[^\n]*@sync\s+peek\b", custom.read_text()) is not None
+                sync = re.search(r"--[^\n]*@sync\s+peek\b", custom.read_text(encoding="utf-8")) is not None
             wrapped[entry] = original
             header = "--- @sync peek\n" if sync else ""
             # The hook is installed before require(): custom plugins that cache
@@ -97,8 +97,8 @@ def main():
             text += "local original = require(" + json.dumps(original) + ")\nlocal M = {}\n"
             text += "function M:peek(job) return bridge:peek_with(original, job) end\n"
             text += "function M:seek(job) if original.seek then return original:seek(job) end end\nreturn M\n"
-            (target / "plugins" / "neovide-glow-native-preview.yazi" / (entry + ".lua")).write_text(text)
-    (target / "yazi.toml").write_text("\n".join(dump(config)) + "\n")
+            (target / "plugins" / "neovide-glow-native-preview.yazi" / (entry + ".lua")).write_text(text, encoding="utf-8")
+    (target / "yazi.toml").write_text("\n".join(dump(config)) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":
