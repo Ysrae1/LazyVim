@@ -48,6 +48,9 @@ function M.sidecar(filename, extension)
     vim.fn.mkdir(cache_directory, "p", 448)
   end
   local original = vim.fn.resolve(vim.fn.fnamemodify(filename, ":p"))
+  -- BufReadCmd and the reader can spell the same Windows path with different
+  -- separators; both must invalidate and reuse the same private sidecar.
+  if vim.fn.has("win32") == 1 then original = vim.fs.normalize(original, { expand_env = false }) end
   return cache_directory .. "/" .. vim.fn.sha256(original) .. "." .. extension
 end
 
@@ -253,6 +256,10 @@ function M.configure_jupytext()
       if value:sub(1, 1) == "'" and value:sub(-1) == "'" then
         return (value:sub(2, -2):gsub("'\\''", "'"))
       end
+      -- Windows shellescape() uses doubled double-quotes unless shellslash is set.
+      if vim.fn.has("win32") == 1 and value:sub(1, 1) == '"' and value:sub(-1) == '"' then
+        return (value:sub(2, -2):gsub('""', '"'))
+      end
       return value
     end
     local args = { argument(input_file) }
@@ -273,7 +280,8 @@ function M.configure_jupytext()
   M.install_reader_guard()
 end
 
-local adapter_path = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":h") .. "/glow_molten_output.py"
+-- Match remote#host's manifest paths: backslashes are escapes in its Vimscript RPC wrappers.
+local adapter_path = vim.fs.normalize(vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":h"), { expand_env = false }) .. "/glow_molten_output.py"
 
 function M.configure_output_adapter()
   local registered = vim.fn["remote#host#PluginsForHost"]("python3")
