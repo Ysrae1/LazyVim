@@ -23,19 +23,44 @@ M.overrides = {
 
 local groups = {
   body = {
-    "LazyNormal", "LazyButton", "MasonNormal", "WhichKeyNormal", "TelescopeNormal",
-    "TelescopePromptNormal", "TelescopeResultsNormal", "TelescopePreviewNormal",
-    "SnacksPicker", "SnacksPickerInput", "SnacksPickerList", "SnacksPickerPreview", "SnacksPickerFile",
-    "SnacksInputNormal", "FFFFileInfoValue", "GlowPopupBody",
+    "LazyNormal",
+    "LazyButton",
+    "MasonNormal",
+    "WhichKeyNormal",
+    "TelescopeNormal",
+    "TelescopePromptNormal",
+    "TelescopeResultsNormal",
+    "TelescopePreviewNormal",
+    "SnacksPicker",
+    "SnacksPickerInput",
+    "SnacksPickerList",
+    "SnacksPickerPreview",
+    "SnacksPickerFile",
+    "SnacksInputNormal",
+    "FFFFileInfoValue",
+    "GlowPopupBody",
   },
   path_prefix = { "SnacksPickerDir", "SnacksPickerLink", "TelescopeResultsComment", "GlowPopupPath" },
   secondary = {
-    "LazyComment", "LazyDimmed", "LazyProp", -- 总数、耗时、任务消息、属性名。
-    "MasonMuted", "WhichKeySeparator", "WhichKeyValue",
-    "SnacksPickerComment", "SnacksPickerDesc", "SnacksPickerDimmed",
-    "SnacksPickerPathHidden", "SnacksPickerPathIgnored", "SnacksPickerBufFlags", "SnacksPickerKeymapRhs",
-    "FFFFileInfoLabel", "FFFFileInfoValueDim", "GlowPopupSecondary",
-    "NoiceFormatEvent", "NoiceFormatKind", "NoiceLspProgressTitle",
+    "LazyComment",
+    "LazyDimmed",
+    "LazyProp", -- 总数、耗时、任务消息、属性名。
+    "MasonMuted",
+    "WhichKeySeparator",
+    "WhichKeyValue",
+    "SnacksPickerComment",
+    "SnacksPickerDesc",
+    "SnacksPickerDimmed",
+    "SnacksPickerPathHidden",
+    "SnacksPickerPathIgnored",
+    "SnacksPickerBufFlags",
+    "SnacksPickerKeymapRhs",
+    "FFFFileInfoLabel",
+    "FFFFileInfoValueDim",
+    "GlowPopupSecondary",
+    "NoiceFormatEvent",
+    "NoiceFormatKind",
+    "NoiceLspProgressTitle",
   },
   count = { "SnacksPickerTotals", "TelescopePromptCounter" },
   notification_body = { "NoicePopup", "NoiceMini", "NoiceSplit", "SnacksNotifierMinimal", "SnacksNotifierHistory" },
@@ -47,22 +72,35 @@ for _, level in ipairs({ "Trace", "Debug", "Info", "Warn", "Error" }) do
 end
 
 local function color(value)
-  if type(value) == "table" then value = value[vim.o.background] end
-  if not value then return nil end
+  if type(value) == "table" then
+    value = value[vim.o.background]
+  end
+  if not value then
+    return nil
+  end
   local base46 = package.loaded.base46
-  if not base46 then return nil end
+  if not base46 then
+    return nil
+  end
   local ui, syntax = base46.get_theme_tb("base_30"), base46.get_theme_tb("base_16")
   local resolved = ui[value] or syntax[value] or value
-  assert(type(resolved) == "string" and resolved:match("^#%x%x%x%x%x%x$"), "未知弹窗文字颜色：" .. tostring(value))
+  assert(
+    type(resolved) == "string" and resolved:match("^#%x%x%x%x%x%x$"),
+    "未知弹窗文字颜色：" .. tostring(value)
+  )
   return tonumber(resolved:sub(2), 16)
 end
 
 function M.apply()
-  if not package.loaded.base46 then return end
+  if not package.loaded.base46 then
+    return
+  end
   for role, names in pairs(groups) do
     for _, name in ipairs(names) do
       local setting = M.overrides[name]
-      if setting == nil then setting = M.config[role] end
+      if setting == nil then
+        setting = M.config[role]
+      end
       local fg = color(setting)
       -- 不提前创建尚未加载插件的组，以免遮住插件 default=true 的背景／样式。
       if fg and (name:match("^GlowPopup") or vim.fn.hlexists(name) == 1) then
@@ -79,8 +117,11 @@ end
 function M.window_overrides(filetype, mapping)
   local notification = filetype:match("^snacks_notif") or filetype == "noice" or filetype == "notify"
   for _, target in pairs(mapping) do
-    notification = notification or target:match("^SnacksNotifier") or target:match("^NoicePopup$")
-      or target:match("^NoiceMini$") or target:match("^NoiceSplit$")
+    notification = notification
+      or target:match("^SnacksNotifier")
+      or target:match("^NoicePopup$")
+      or target:match("^NoiceMini$")
+      or target:match("^NoiceSplit$")
   end
   local fg = notification and color(M.config.notification_detail)
   return fg and { NonText = { fg = fg }, Comment = { fg = fg } } or {}
