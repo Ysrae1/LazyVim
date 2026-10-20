@@ -155,6 +155,10 @@ function M.complete_notebook_load(buf)
       vim.api.nvim_exec_autocmds("BufReadPost", { buffer = buf, modeline = false })
     end)
   end
+  -- Built-in detection sees the .ipynb filename during BufReadPost and can
+  -- overwrite Python with JSON even though this buffer already holds percent
+  -- source. Restore the converted language after all read handlers finish.
+  if vim.bo[buf].filetype ~= "python" then vim.bo[buf].filetype = "python" end
   vim.bo[buf].modified = modified
   return true
 end

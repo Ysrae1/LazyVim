@@ -755,8 +755,14 @@ end
 local function attach(buf, reload)
   local path = vim.api.nvim_buf_get_name(buf)
   if not M.supports(path) then return end
+  local runtime = require("config.media.runtime")
+  if vim.b[buf].glow_notebook_read_complete and vim.bo[buf].filetype ~= "python" then
+    -- A later filetype detection/session restore can see only the .ipynb
+    -- filename. Revalidate converted source before restoring its language.
+    runtime.complete_notebook_load(buf)
+  end
   if not sessions[buf] then sessions[buf] = { buf = buf, path = path } end
-  require("config.media.runtime").ensure_notebook_writer(buf)
+  runtime.ensure_notebook_writer(buf)
   if not sessions[buf].ready then require("config.media.notebook_saved").attach(buf, path, reload) end
   if reload then require("config.media.notebook_dirty").detach(buf) end
   require("config.media.notebook_dirty").attach(buf)

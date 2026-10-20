@@ -122,7 +122,16 @@ function M.resolve(profile, normal, popup)
   assert(type(setting) == "table", "浮窗材质配置必须是表：" .. profile)
   local mode = setting.mode or "opaque"
   assert(mode == "opaque" or mode == "editor" or mode == "custom", "未知浮窗材质模式：" .. tostring(mode))
-  if mode == "editor" then return { mode = mode, bg = normal.bg, blend = normal.blend or 0 } end
+  if mode == "editor" then
+    local blend = normal.blend or 0
+    if blend == 0 then
+      -- 浮窗的边框/留白也要显式继承编辑区透明度，不能依赖 Normal
+      -- 同色背景的前端回退，否则内容层透明、外层底板仍可能实心。
+      local opacity = tonumber(vim.g.neovide_normal_opacity) or 1
+      blend = math.floor((1 - math.max(0, math.min(1, opacity))) * 100 + 0.5)
+    end
+    return { mode = mode, bg = normal.bg, blend = blend }
+  end
   if mode == "opaque" then return { mode = mode, bg = popup, blend = 0 } end
   local blend = setting.blend or 0
   assert(type(blend) == "number" and blend == blend and blend >= 0 and blend <= 100, "浮窗 blend 必须在 0..100：" .. profile)

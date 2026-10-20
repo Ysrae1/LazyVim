@@ -102,8 +102,27 @@ local function source_namespace(win, mapping, state)
   return 0
 end
 
+local function provider_hooks()
+  local function after_show(provider, method, marker)
+    if not provider or type(provider[method]) ~= "function" or provider[marker] == provider[method] then return end
+    local original = provider[method]
+    provider[method] = function(...)
+      local result = vim.F.pack_len(original(...))
+      -- WhichKey 屏蔽窗口事件；Noice 重画时也可能重设边框映射。
+      -- 显示结束后同步刷新两层，不加轮询；reload 后动态读取新版处理函数。
+      require("config.appearance.popups").apply()
+      vim.api.nvim_exec_autocmds("User", { pattern = "NeovideFloatChanged", modeline = false })
+      return vim.F.unpack_len(result)
+    end
+    provider[marker] = provider[method]
+  end
+  after_show(package.loaded["which-key.view"], "show", "_glow_material_show")
+  after_show(package.loaded["noice.view.nui"], "show", "_glow_material_show")
+end
+
 function M.apply()
   if not vim.g.neovide then return end
+  provider_hooks()
   vim.o.pumblend = 0
   -- 每轮仅扫描一次全局高亮，只保留会透出背景的稀疏覆盖；不按窗口复制全部语法组。
   local global = read(0)
@@ -147,6 +166,8 @@ function M.apply()
         if vim.wo[win].winhighlight ~= original then vim.wo[win].winhighlight = original end
         local profile = profiles.classify(win, mapping)
         local policy = profiles.resolve(profile, normal, popup)
+        -- 前端用 Src 合成浮窗的绝对背景 alpha；每个子窗保留自己的材质。
+        -- blend=100 会清空父背景，不能把它当作“只画文字”的继承方式。
         local material_key = policy.mode .. ":" .. policy.bg .. ":" .. policy.blend
         if not sparse_cache[material_key] then
           local sparse = {}
