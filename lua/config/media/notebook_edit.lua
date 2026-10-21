@@ -345,8 +345,9 @@ local function title(buf)
     if vim.api.nvim_win_is_valid(win) then
       local info = vim.fn.getwininfo(win)[1]
       local host_width = vim.api.nvim_win_get_width(win)
-      vim.wo[win].winbar = M.render_title(session, info and info.width or host_width,
-        { textoff = info and info.textoff or 0, host_width = host_width })
+      require("config.media.notebook_winbar").set(win, buf,
+        M.render_title(session, info and info.width or host_width,
+          { textoff = info and info.textoff or 0, host_width = host_width }))
     end
   end
 end
@@ -901,6 +902,7 @@ end
 function M.setup()
   if configured then return end
   configured = true
+  require("config.media.notebook_winbar").setup()
   require("config.media.notebook_saved").setup()
   M.refresh_title_colors()
   vim.api.nvim_set_hl(0, "GlowNotebookCell", { default = true, link = "CursorLine" })
