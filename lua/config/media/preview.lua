@@ -107,7 +107,7 @@ function M.render_title(view,width)
 end
 local function title(view)
   if not owns(view) then return end
-  winbar.set(view.win,view.buf,M.render_title(view,vim.api.nvim_win_get_width(view.win)),view)
+  winbar.set(view.win,view.buf,M.render_title(view,vim.api.nvim_win_get_width(view.win)),view,view.winbar_before)
 end
 local function geometry(view)
   local pos=vim.api.nvim_win_get_position(view.win)
@@ -286,13 +286,14 @@ function M.open(source,opts)
   if command~='' then vim.cmd(command) end
   local win=vim.api.nvim_get_current_win()
   if views[win] then dispose(views[win]) end
+  local before=winbar.capture(win)
   local saved=remember(win)
   local buf=vim.api.nvim_create_buf(false,true)
   vim.api.nvim_buf_set_name(buf,'glow-'..kind..'://'..buf..'/'..source)
   vim.bo[buf].filetype='glow_'..kind; vim.bo[buf].bufhidden='wipe'; vim.bo[buf].swapfile=false; vim.bo[buf].modifiable=false
   vim.api.nvim_win_set_buf(win,buf)
   for k,v in pairs({number=false,relativenumber=false,signcolumn='no',foldcolumn='0',wrap=false,list=false,cursorline=false,cursorcolumn=false,spell=false,fillchars='eob: '}) do vim.wo[win][k]=v end
-  local v={win=win,buf=buf,source=source,kind=kind,title=opts.title or vim.fs.basename(source),opts=opts,saved=saved,zoom=1,volume=1}
+  local v={win=win,buf=buf,source=source,kind=kind,title=opts.title or vim.fs.basename(source),opts=opts,saved=saved,zoom=1,volume=1,winbar_before=before}
   views[win]=v
   local function map(lhs,fn,desc) vim.keymap.set('n',lhs,fn,{buffer=buf,silent=true,desc=desc}) end
   map('q',M.close,T("Close Preview")); map('<Esc>',M.close,T("Close Preview")); map('r',M.reload,T("Refresh Preview"))

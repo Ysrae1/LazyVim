@@ -86,7 +86,7 @@ local function title(view)
   if not owns(view) then
     return
   end
-  winbar.set(view.win, view.buf, M.render_title(view, vim.api.nvim_win_get_width(view.win)), view)
+  winbar.set(view.win, view.buf, M.render_title(view, vim.api.nvim_win_get_width(view.win)), view, view.winbar_before)
 end
 
 local function show(view)
@@ -330,6 +330,7 @@ function M.open(path, opts)
     vim.cmd(opts.command)
   end
   local win = vim.api.nvim_get_current_win()
+  local before = winbar.capture(win)
   local previous = views[win]
   local saved = previous and previous.saved or remember(win)
   if previous then
@@ -337,7 +338,7 @@ function M.open(path, opts)
   end
   local buf = buffer(path)
   vim.api.nvim_win_set_buf(win, buf)
-  views[win] = { win = win, buf = buf, path = path, zoom = 1, pan_x = 0, pan_y = 0, saved = saved }
+  views[win] = { win = win, buf = buf, path = path, zoom = 1, pan_x = 0, pan_y = 0, saved = saved, winbar_before = before }
   M.refresh()
   return true
 end

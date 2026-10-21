@@ -2,7 +2,7 @@
 -- replacing another preview inherits the original local bar, not its controls.
 local M = {}
 local api = vim.api
-local owners, configured, writing = {}, false, false
+local owners, leaving, configured, writing = {}, {}, false, false
 local prefixes = { "%#GlowNotebookBar#", "%#GlowMediaBar#" }
 local function local_bar(win)
   return api.nvim_get_option_value("winbar", { win = win, scope = "local" })
@@ -43,10 +43,23 @@ local function write(win, value)
   writing = false
   if not ok then error(err, 0) end
 end
-function M.set(win, buf, value, owner)
+function M.capture(win)
+  local current, saved = local_bar(win), owners[win]
+  if current == "" and saved and not saved.retired then return saved.before end
+  return baseline(win, current)
+end
+function M.set(win, buf, value, owner, before)
   if not M.is_current(win, buf) or not managed_buffer(buf) then return false end
   local current, saved = local_bar(win), owners[win]
-  local before = saved and saved.rendered == current and saved.before or baseline(win, current)
+  -- Neovim resets window-local options while entering a new buffer, after some
+  -- BufWinEnter callbacks have already rendered its first title.
+  if saved and not saved.retired and saved.owner == (owner or buf) and (saved.rendered == current or current == "") then
+    before = saved.before
+  elseif before == nil then
+    local previous = leaving[win]
+    before = current == "" and previous and previous.buf ~= buf and previous.before or baseline(win, current)
+  else before = baseline(win, before) end
+  leaving[win] = nil
   owners[win] = { owner = owner or buf, buf = buf, before = before, rendered = value }
   write(win, value)
   return true
@@ -54,7 +67,11 @@ end
 function M.release(win, buf, owner)
   local saved = owners[win]
   if not saved or saved.buf ~= buf or saved.owner ~= (owner or buf) then return false end
-  if api.nvim_win_is_valid(win) and local_bar(win) == saved.rendered then write(win, baseline(win, saved.before)) end
+  if api.nvim_win_is_valid(win) and not saved.retired then
+    local current = local_bar(win)
+    if current == saved.rendered or current == "" then write(win, baseline(win, saved.before)) end
+  end
+  saved.retired = true
   -- Keep only the last value until WinClosed to recognize inherited/legacy
   -- controls without growing a history of asynchronous status text.
   return true
@@ -64,8 +81,9 @@ function M.refresh()
   for win in pairs(owners) do if not api.nvim_win_is_valid(win) then owners[win] = nil end end
   for _, win in ipairs(api.nvim_list_wins()) do
     local buf, current, saved = api.nvim_win_get_buf(win), local_bar(win), owners[win]
-    if saved and (saved.buf ~= buf or not managed_buffer(buf)) then
-      if current == saved.rendered then write(win, baseline(win, saved.before)) end
+    if saved and not saved.retired and (saved.buf ~= buf or not managed_buffer(buf)) then
+      if current == saved.rendered or current == "" then write(win, baseline(win, saved.before)) end
+      saved.retired = true
     elseif not saved and managed_bar(current) then
       local before = baseline(win, current)
       owners[win] = { buf = buf, before = before, rendered = current }
@@ -79,11 +97,18 @@ function M.setup()
     configured = true
     pcall(api.nvim_del_augroup_by_name, "GlowNotebookWinbar")
     local group = api.nvim_create_augroup("GlowMediaWinbar", { clear = true })
+    api.nvim_create_autocmd("BufWinLeave", { group = group, callback = function(event)
+      for _, win in ipairs(api.nvim_list_wins()) do
+        if api.nvim_win_get_buf(win) == event.buf then leaving[win] = { buf = event.buf, before = M.capture(win) } end
+      end
+    end })
     api.nvim_create_autocmd({ "BufEnter", "BufWinEnter", "BufFilePost", "WinEnter", "WinNew", "BufDelete", "BufWipeout" }, {
       group = group, callback = function() M.refresh(); vim.schedule(M.refresh) end,
     })
     api.nvim_create_autocmd("OptionSet", { group = group, pattern = "winbar", callback = M.refresh })
-    api.nvim_create_autocmd("WinClosed", { group = group, callback = function(event) owners[tonumber(event.match)] = nil end })
+    api.nvim_create_autocmd("WinClosed", { group = group, callback = function(event)
+      local win = tonumber(event.match); owners[win], leaving[win] = nil, nil
+    end })
   end
   M.refresh()
 end
