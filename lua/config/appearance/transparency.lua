@@ -431,15 +431,15 @@ function M.apply()
   local windows_gui = vim.fn.has("win32") == 1
   if vim.g.neovide_liquid_glass == true or windows_gui then
     if windows_gui then
-      -- Windows has no native Liquid Glass flag. Only the bar's outside cells
-      -- follow Normal's existing RGB, so Neovide uses the editor's own opacity.
+      -- Keep the Windows bar's existing RGB, with the same material alpha as
+      -- NeoTree. Explicit blend also applies when its RGB matches Normal.
       -- Do not alter shared StatusLineNC/TabLine aliases or capsule accents.
       local normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
       if normal.bg then
         for _, name in ipairs(bottom_bar) do
           if vim.fn.hlexists(name) == 1 then
             local attrs = vim.api.nvim_get_hl(0, { name = name, link = false })
-            attrs.bg, attrs.blend = normal.bg, 0
+            attrs.bg, attrs.blend = normal.bg, material_blend
             vim.api.nvim_set_hl(0, name, attrs)
             resolved_links[name] = nil
           end
@@ -460,11 +460,9 @@ function M.apply()
         end
       end
     end
-    -- Windows leaves fractional bottom pixels on the same editor-opacity path.
-    -- Keep the existing macOS Liquid Glass footer policy independent.
-    if not windows_gui then
-      vim.g.neovide_bottom_margin_opacity = (100 - material_blend) / 100
-    end
+    -- The sub-cell remainder below the bar shares the panel material, including
+    -- after a native resize leaves a partial grid row on Windows.
+    vim.g.neovide_bottom_margin_opacity = (100 - material_blend) / 100
   end
   for _, name in ipairs(rows) do
     -- 光标行独立调节，后续材质刷新也不能把用户设置覆盖回统一面板透明度。
