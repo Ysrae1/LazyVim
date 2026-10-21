@@ -1,6 +1,6 @@
 -- Background-only transparency. Neovide keeps foreground text fully opaque.
 local M = {}
-local configured, queued = false, false
+local configured, queued, pending_full = false, false, false
 local material_blend = 80 -- Windows light takes its denser platform policy at apply time.
 -- Base surfaces precede aliases, so links which already inherit the requested
 -- blend stay links. Syntax, selections and solid capsule bodies stay opaque.
@@ -383,12 +383,13 @@ end
 function M.apply_notifier_material()
   if not vim.g.neovide then return end
   local normal = vim.api.nvim_get_hl_by_id(vim.fn.hlID("Normal"), true)
+  local background = require("config.appearance.popups").background()
   -- 这些正文原本链接 Normal / NormalFloat；每次读取源颜色，避免模块重载后旧配色滞留。
   for name, source in pairs(notifier_surfaces) do
     if vim.fn.hlexists(name) == 1 then
       local attrs = vim.api.nvim_get_hl_by_id(vim.fn.hlID(source), true)
       attrs.foreground = attrs.foreground or normal.foreground
-      attrs.background = require("config.appearance.popups").background()
+      attrs.background = background
       attrs.blend = 0
       vim.api.nvim_set_hl(0, name, attrs)
     end
@@ -483,16 +484,29 @@ function M.apply()
   require("config.appearance.popups").apply()
 end
 
-local function schedule()
-  if queued then
-    return
-  end
+-- Opening/focusing a window changes its local material, not the theme palette.
+-- Provider first-show hooks keep their synchronous path; later window events
+-- only settle namespaces/separators, never rebuild every global surface group.
+function M.apply_windows()
+  if not vim.g.neovide then return end
+  split_separators()
+  require("config.appearance.popups").apply()
+end
+
+local function schedule(event)
+  local window_event = event and (event.event == "WinNew" or event.event == "BufWinEnter" or event.event == "OptionSet")
+  pending_full = pending_full or not window_event
+  if queued then return end
   queued = true
-  -- Base46 reapplies plugin integrations in nested scheduled callbacks. Settle
-  -- after those callbacks once per theme/plugin update, without a polling loop.
   vim.defer_fn(function()
+    local full = pending_full
+    pending_full = false
+    -- Keep the guard during our own winhighlight repairs to avoid feedback.
+    local ok, err = pcall(full and M.apply or M.apply_windows)
     queued = false
-    M.apply()
+    if not ok then error(err) end
+    -- Preserve a real theme/plugin update that arrived during this refresh.
+    if pending_full then schedule() end
   end, 30)
 end
 

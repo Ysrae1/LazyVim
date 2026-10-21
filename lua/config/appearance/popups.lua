@@ -34,8 +34,14 @@ local function background(normal, global)
 end
 
 function M.background()
-  local global = read(0)
-  return background(resolver(global)("Normal").bg, global)
+  -- This lookup is also used once per notifier surface. Reading every global
+  -- highlight here repeatedly copies the entire syntax table on Windows.
+  -- Only these two resolved global colors contribute to the existing policy.
+  local global = {}
+  for _, name in ipairs({ "Normal", "NormalFloat" }) do
+    global[name] = vim.api.nvim_get_hl(0, { name = name, link = false, create = false })
+  end
+  return background(global.Normal.bg, global)
 end
 
 local function mappings(value)
