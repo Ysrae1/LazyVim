@@ -122,6 +122,7 @@ function M.setup()
   require("config.platform.diagnostic_locale").setup()
   require("config.platform.notebook_chrome_locale").setup()
   require("config.platform.vimtex_locale").setup()
+  require("config.platform.native_menu_locale").setup(M)
 end
 M.setup()
 return M
