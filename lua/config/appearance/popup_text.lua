@@ -71,7 +71,7 @@ for _, level in ipairs({ "Trace", "Debug", "Info", "Warn", "Error" }) do
   table.insert(groups.notification_title, "SnacksNotifierTitle" .. level)
 end
 
-local function color(value)
+local function color(value, palette)
   if type(value) == "table" then
     value = value[vim.o.background]
   end
@@ -82,8 +82,13 @@ local function color(value)
   if not base46 then
     return nil
   end
-  local ui, syntax = base46.get_theme_tb("base_30"), base46.get_theme_tb("base_16")
-  local resolved = ui[value] or syntax[value] or value
+  -- One ephemeral palette per apply batch. Base46's legacy getter also probes
+  -- missing user-theme modules, so repeating it for every group blocks the UI.
+  palette = palette or {}
+  if not palette.ui then
+    palette.ui, palette.syntax = base46.get_theme_tb("base_30"), base46.get_theme_tb("base_16")
+  end
+  local resolved = palette.ui[value] or palette.syntax[value] or value
   assert(
     type(resolved) == "string" and resolved:match("^#%x%x%x%x%x%x$"),
     "未知弹窗文字颜色：" .. tostring(value)
@@ -95,13 +100,14 @@ function M.apply()
   if not package.loaded.base46 then
     return
   end
+  local palette = {}
   for role, names in pairs(groups) do
     for _, name in ipairs(names) do
       local setting = M.overrides[name]
       if setting == nil then
         setting = M.config[role]
       end
-      local fg = color(setting)
+      local fg = color(setting, palette)
       -- 不提前创建尚未加载插件的组，以免遮住插件 default=true 的背景／样式。
       if fg and (name:match("^GlowPopup") or vim.fn.hlexists(name) == 1) then
         local source = name == "GlowPopupBody" and "NormalFloat" or name
@@ -123,7 +129,8 @@ function M.window_overrides(filetype, mapping)
       or target:match("^NoiceMini$")
       or target:match("^NoiceSplit$")
   end
-  local fg = notification and color(M.config.notification_detail)
+  -- Window overrides form their own batch; never retain colors across themes.
+  local fg = notification and color(M.config.notification_detail, {})
   return fg and { NonText = { fg = fg }, Comment = { fg = fg } } or {}
 end
 
