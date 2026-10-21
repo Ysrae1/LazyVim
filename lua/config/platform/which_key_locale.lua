@@ -17,8 +17,77 @@ local function generated_count(node, opts)
   if count > 0 then return count end
 end
 
+-- LazyVim 28db03f's ai_whichkey() gives MiniAi bfb26d9 the same object
+-- descriptions under a/i (and an/in/al/il). Resolve their actual semantics
+-- from the provider's mapped closure, never from a guessed key prefix.
+local mini_ai_objects = {
+  ['" string'] = { '" string', 'inner " string' },
+  ["' string"] = { "' string", "inner ' string" },
+  ['` string'] = { '` string', 'inner ` string' },
+  ['() block'] = { 'Round Bracket Block', 'Round Bracket Contents Without Edge Whitespace' },
+  ['() block with ws'] = { 'Round Bracket Block', 'Round Bracket Contents With Edge Whitespace' },
+  ['<> block'] = { '<> block', 'Angle Bracket Contents Without Edge Whitespace' },
+  ['<> block with ws'] = { '<> block', 'Angle Bracket Contents With Edge Whitespace' },
+  ['[] block'] = { '[] block', 'Square Bracket Contents Without Edge Whitespace' },
+  ['[] block with ws'] = { '[] block', 'Square Bracket Contents With Edge Whitespace' },
+  ['{} block'] = { 'Brace Block', 'Brace Contents Without Edge Whitespace' },
+  ['{} with ws'] = { 'Brace Block', 'Brace Contents With Edge Whitespace' },
+  [')]} block'] = { 'Bracket Block', 'Bracket Contents With Edge Whitespace' },
+  ['whitespace'] = { 'Space-Delimited Text With Right Separator', 'Space-Delimited Inner Text' },
+  ['underscore'] = { 'Underscore-Delimited Text With Right Separator', 'Underscore-Delimited Inner Text' },
+  ['user prompt'] = { 'Text With User-Specified Boundaries', 'Text Inside User-Specified Boundaries' },
+  ['argument'] = { 'Argument With Adjacent Separator Or Whitespace', 'Argument Without Separator Or Edge Whitespace' },
+  ['class'] = { 'Class Definition', 'Class Contents' },
+  ['digit(s)'] = { 'Consecutive Digits', 'Consecutive Digits' },
+  ['CamelCase / snake_case'] = { 'CamelCase Or Snake Case Segment', 'CamelCase Or Snake Case Segment' },
+  ['function'] = { 'Function Definition', 'Function Body' },
+  ['entire file'] = { 'Entire File With Edge Blank Lines', 'Entire File Without Edge Blank Lines' },
+  ['indent'] = { 'Indentation Text Object', 'Indentation Text Object' },
+  ['block, conditional, loop'] = { 'Code Block Conditional Or Loop', 'Code Block Conditional Or Loop Contents' },
+  ['quote `"\''] = { 'Quoted Text With Delimiters', 'Quoted Text Without Delimiters' },
+  ['tag'] = { 'tag block', 'inner tag block' },
+  ['use/call'] = { 'Function Call With Name And Parentheses', 'Function Call Arguments' },
+  ['use/call without dot'] = { 'Function Call Without Dots In Name', 'Function Call Arguments Without Dots In Name' },
+}
+
+local function mini_ai_context(prefix)
+  local callback = prefix and prefix.keymap and prefix.keymap.callback
+  if type(callback) ~= 'function' then return end
+  local source = debug.getinfo(callback, 'S').source:gsub('\\', '/')
+  if not source:match('/mini/ai%.lua$') then return end
+  local kind, search
+  for index = 1, 10 do
+    local name, value = debug.getupvalue(callback, index)
+    if not name then break end
+    if name == 'ai_type' then kind = value elseif name == 'search_method' then search = value end
+  end
+  if kind == 'a' or kind == 'i' then return kind, search end
+end
+
+local function mini_ai_text(node)
+  if not chinese() then return end
+  local kind, search = mini_ai_context(node)
+  if kind then
+    local group = kind == 'i' and 'Inside Text Object' or 'Around Text Object'
+    if search == 'next' then group = kind == 'i' and 'Next Inside Text Object' or 'Next Around Text Object'
+    elseif search == 'prev' then group = kind == 'i' and 'Previous Inside Text Object' or 'Previous Around Text Object' end
+    return require('config.platform.locale').t(group), true
+  end
+  kind = mini_ai_context(node.parent)
+  if not kind then return end
+  -- A real child mapping overrides MiniAi's generated display-only metadata.
+  -- Retain its explicit description even if it resembles a provider phrase.
+  if node.keymap then return node.keymap.desc end
+  local row = mini_ai_objects[node.desc]
+  if row then return require('config.platform.locale').t(row[kind == 'a' and 1 or 2]) end
+end
+
 function M.item(original, node, opts)
   local item = original(node, opts)
+  local mini_text, mini_group = mini_ai_text(node)
+  if mini_text then
+    item.desc = (mini_group and item.group and require('which-key.config').icons.group or '') .. mini_text
+  end
   local plugin = node.parent and node.parent.plugin
   if plugin == "marks" and type(node.desc) == "string" and node.desc:sub(1, 6) == "file: " then
     -- The label is provider chrome; the suffix is a user path even when its
