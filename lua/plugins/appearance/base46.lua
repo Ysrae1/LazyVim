@@ -19,6 +19,7 @@ return {
           require("base46").load_all_highlights()
         end
         require("nvchad")
+        require("config.navigation.buffer_close").setup()
       end
       if vim.fn.filereadable(vim.g.base46_cache .. "tbline") == 0 then
         -- base46 requires nvconfig, which lazy-loads this UI configuration.
