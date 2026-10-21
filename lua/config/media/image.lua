@@ -77,15 +77,20 @@ function M.render_title(view, width)
   return capsule.close_hint(width)
 end
 
+local winbar = require("config.media.winbar")
+local function owns(view)
+  return views[view.win] == view and winbar.is_current(view.win, view.buf)
+    and vim.bo[view.buf].filetype == "glow_image" and vim.b[view.buf].glow_image_path == view.path
+end
 local function title(view)
-  if not vim.api.nvim_win_is_valid(view.win) then
+  if not owns(view) then
     return
   end
-  vim.wo[view.win].winbar = M.render_title(view, vim.api.nvim_win_get_width(view.win))
+  winbar.set(view.win, view.buf, M.render_title(view, vim.api.nvim_win_get_width(view.win)), view)
 end
 
 local function show(view)
-  if not view.id or not vim.api.nvim_win_is_valid(view.win) then
+  if not view.id or not owns(view) then
     return
   end
   local position = vim.api.nvim_win_get_position(view.win)
@@ -118,7 +123,7 @@ local function options(win)
   vim.wo[win].fillchars = "eob: "
 end
 
-local window_options = { "number", "relativenumber", "signcolumn", "foldcolumn", "wrap", "list", "cursorline", "cursorcolumn", "spell", "scrolloff", "sidescrolloff", "fillchars", "winbar" }
+local window_options = { "number", "relativenumber", "signcolumn", "foldcolumn", "wrap", "list", "cursorline", "cursorcolumn", "spell", "scrolloff", "sidescrolloff", "fillchars" }
 
 local function remember(win)
   local saved = {}
@@ -131,8 +136,9 @@ end
 local function restore(view)
   if vim.api.nvim_win_is_valid(view.win) then
     for key, value in pairs(view.saved or {}) do
-      vim.wo[view.win][key] = value
+      if key ~= "winbar" then vim.wo[view.win][key] = value end
     end
+    winbar.release(view.win, view.buf, view)
   end
 end
 
@@ -193,7 +199,7 @@ end
 -- Called by Neovide after the worker finishes. Closed/replaced requests are ignored.
 function M.on_status(id, width, height, err)
   local view = active[id]
-  if not view or not vim.api.nvim_win_is_valid(view.win) then
+  if not view or not owns(view) then
     return
   end
   if err and err ~= vim.NIL and err ~= "" then
@@ -246,11 +252,13 @@ end
 function M.close()
   local win = vim.api.nvim_get_current_win()
   local view = views[win]
+  local still_current = view and owns(view)
   if view then
     release(view)
     restore(view)
     views[win] = nil
   end
+  if not still_current then return end
   -- Notification floats cannot replace the tab's last ordinary editor window.
   local ordinary_windows = 0
   for _, other in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
@@ -361,6 +369,7 @@ function M.setup()
     return
   end
   configured = true
+  winbar.setup()
   capsule.refresh_colors()
   local group = vim.api.nvim_create_augroup("GlowNativeImage", { clear = true })
   local function refresh_theme()

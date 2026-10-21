@@ -2,11 +2,16 @@ local function T(text) return require("config.platform.locale").t(text) end
 -- Native previews use notifications only. Never make a synchronous Neovide RPC.
 local M = {}
 local capsule = require('config.media.capsule')
+local winbar = require('config.media.winbar')
 local views, active, next_id, configured, pending, timer = {}, {}, 0, false, false, nil
 local audio = { mp3=true, m4a=true, aac=true, wav=true, aiff=true, aif=true, caf=true, flac=true }
 local video = { mp4=true, m4v=true, mov=true, mpg=true, mpeg=true }
 local web = { html=true, htm=true, xhtml=true }
-local saved_options = { 'number','relativenumber','signcolumn','foldcolumn','wrap','list','cursorline','cursorcolumn','spell','winbar','fillchars' }
+local saved_options = { 'number','relativenumber','signcolumn','foldcolumn','wrap','list','cursorline','cursorcolumn','spell','fillchars' }
+local function owns(view)
+  return views[view.win] == view and winbar.is_current(view.win, view.buf)
+    and vim.bo[view.buf].filetype == 'glow_' .. view.kind
+end
 
 function M.kind(path)
   local ext = (path:match('%.([^./]+)$') or ''):lower()
@@ -44,7 +49,8 @@ local function remember(win)
 end
 local function restore(view)
   if vim.api.nvim_win_is_valid(view.win) then
-    for k,v in pairs(view.saved or {}) do vim.wo[view.win][k]=v end
+    for k,v in pairs(view.saved or {}) do if k~='winbar' then vim.wo[view.win][k]=v end end
+    winbar.release(view.win,view.buf,view)
   end
 end
 local function release(view)
@@ -100,8 +106,8 @@ function M.render_title(view,width)
   return capsule.close_hint(width)
 end
 local function title(view)
-  if not vim.api.nvim_win_is_valid(view.win) then return end
-  vim.wo[view.win].winbar=M.render_title(view,vim.api.nvim_win_get_width(view.win))
+  if not owns(view) then return end
+  winbar.set(view.win,view.buf,M.render_title(view,vim.api.nvim_win_get_width(view.win)),view)
 end
 local function geometry(view)
   local pos=vim.api.nvim_win_get_position(view.win)
@@ -109,7 +115,7 @@ local function geometry(view)
   return {row=pos[1]+((info and info.winbar) or 0),col=pos[2],width=vim.api.nvim_win_get_width(view.win),height=info and info.height or math.max(1,vim.api.nvim_win_get_height(view.win)-1)}
 end
 local function show(view)
-  if not view.id or not vim.api.nvim_win_is_valid(view.win) then return end
+  if not view.id or not owns(view) then return end
   local rect=geometry(view)
   if not vim.deep_equal(rect,view.geometry) then rpc('show',view.id,rect); view.geometry=rect end
 end
@@ -150,7 +156,7 @@ local function schedule()
 end
 function M.on_status(id,json)
   local view=active[id]
-  if not view then return end
+  if not view or not owns(view) then return end
   local ok,status=pcall(vim.json.decode,json)
   if not ok or type(status)~='table' then return end
   if view.kind=='pdf' and status.close_requested==true then M.close(id); return end
@@ -177,8 +183,8 @@ function M.on_status(id,json)
 end
 local function current()
   local view=views[vim.api.nvim_get_current_win()]
-  if view then return view end
-  for _,win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do if views[win] then return views[win] end end
+  if view and owns(view) then return view end
+  for _,win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do if views[win] and owns(views[win]) then return views[win] end end
 end
 function M.action(action,value)
   local view=current()
@@ -258,7 +264,9 @@ function M.close(id)
   local v
   if id~=nil then v=active[id] else v=current() end
   if not v then return end
+  local still_current=owns(v)
   dispose(v); views[v.win]=nil
+  if not still_current then return end
   if vim.api.nvim_win_is_valid(v.win) then
     if #vim.api.nvim_tabpage_list_wins(0)>1 then vim.api.nvim_win_close(v.win,false)
     else vim.api.nvim_win_call(v.win,function() vim.cmd.enew() end) end
@@ -328,6 +336,7 @@ end
 function M.setup()
   if configured then return end
   configured=true
+  winbar.setup()
   capsule.refresh_colors()
   require('config.media.synctex').setup()
   for lhs,rhs in pairs({['<C-Tab>']='gt',['<C-S-Tab>']='gT'}) do
