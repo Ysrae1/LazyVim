@@ -89,4 +89,6 @@ M.ui = {
 
 M.nvdash = { load_on_startup = false }
 
+require("config.appearance.window_drag").setup()
+
 return M
