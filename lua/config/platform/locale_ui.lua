@@ -115,6 +115,30 @@ function M.product_buffer_name(name)
   return titles[source] and (T(titles[source]) .. " [" .. id .. "]") or name
 end
 
+function M.snacks_caption_opts(self, opts)
+  local translated = false
+  for _, field in ipairs({ "title", "footer" }) do
+    if type(opts[field]) == "table" then
+      local chunks = vim.deepcopy(opts[field])
+      for _, chunk in ipairs(chunks) do
+        -- Translate provider chrome only; Scratch identities and input values
+        -- remain unchanged. Resolve again on update so typing cannot restore
+        -- the title's language from when the input window was created.
+        if chunk[2] == "SnacksScratchTitle" or chunk[2] == "SnacksFooterDesc"
+          or chunk[2] == "SnacksInputTitle" then
+          local before, text, after = chunk[1]:match("^(%s*)(.-)(%s*)$")
+          local name, count = text:match("^(Scratch)( %d+)$")
+          chunk[1] = before .. T(name or text) .. (count or "") .. after
+          translated = true
+        end
+      end
+      opts[field] = chunks
+    end
+  end
+  if translated then require("snacks.win")._glow_caption_locale[self] = true end
+  return opts
+end
+
 local function setup_snacks()
   if not package.loaded.snacks then return end
   local picker = require("snacks.picker.core.picker")
@@ -154,31 +178,25 @@ local function setup_snacks()
     end
   end
   local win = require("snacks.win")
-  if not win._glow_caption_locale then
-    win._glow_caption_locale = setmetatable({}, { __mode = "k" })
+  if not win._glow_caption_locale_dispatch then
     local win_opts = win.win_opts
-    win.win_opts = function(self, ...)
-      local opts = win_opts(self, ...)
-      local translated = false
-      for _, field in ipairs({ "title", "footer" }) do
-        if type(opts[field]) == "table" then
-          local chunks = vim.deepcopy(opts[field])
-          for _, chunk in ipairs(chunks) do
-            -- Scratch names determine persistent file identities, so translate
-            -- only the rendered caption; never change opts.name or metadata.
-            if chunk[2] == "SnacksScratchTitle" or chunk[2] == "SnacksFooterDesc" then
-              local before, text, after = chunk[1]:match("^(%s*)(.-)(%s*)$")
-              local name, count = text:match("^(Scratch)( %d+)$")
-              chunk[1] = before .. T(name or text) .. (count or "") .. after
-              translated = true
-            end
-          end
-          opts[field] = chunks
-        end
+    if win._glow_caption_locale then
+      -- Adopt our exact previous wrapper once; keep open windows and other
+      -- adapters instead of reloading the provider or stacking locale hooks.
+      local previous
+      for index = 1, 20 do
+        local name, value = debug.getupvalue(win_opts, index)
+        if not name then break end
+        if name == "win_opts" and type(value) == "function" then previous = value; break end
       end
-      if translated then win._glow_caption_locale[self] = true end
-      return opts
+      assert(previous, "Cannot safely upgrade the previous Snacks caption locale hook")
+      win_opts = previous
     end
+    win._glow_caption_locale = win._glow_caption_locale or setmetatable({}, { __mode = "k" })
+    win.win_opts = function(self, ...)
+      return require("config.platform.locale_ui").snacks_caption_opts(self, win_opts(self, ...))
+    end
+    win._glow_caption_locale_dispatch = true
   end
   local input = require("snacks.input")
   if not input._glow_ui_locale then
@@ -306,7 +324,8 @@ local function refresh_existing_captions()
         for _, chunk in ipairs(chunks) do
           local group = type(chunk[2]) == "number" and vim.api.nvim_get_hl_name_by_id(chunk[2]) or chunk[2]
           local names = sources[group] or { group }
-          if vim.tbl_contains(names, "SnacksScratchTitle") or vim.tbl_contains(names, "SnacksFooterDesc") then
+          if vim.tbl_contains(names, "SnacksScratchTitle") or vim.tbl_contains(names, "SnacksFooterDesc")
+            or vim.tbl_contains(names, "SnacksInputTitle") then
             local text = chunk[1]
             local left, body, right = text:match("^(%s*)(.-)(%s*)$")
             local name, count = body:match("^(Scratch)( %d+)$")
