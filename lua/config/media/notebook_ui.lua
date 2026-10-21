@@ -1,6 +1,7 @@
+local function T(text) return require("config.platform.locale").t(text) end
 -- Presentation only: real Neovim text and Molten outputs stay authoritative.
 -- Skia draws the rounded strokes; empty virtual rows supply their inner padding.
-local M = { border_labels = true }
+local M = { border_labels = true, _glow_chrome_refresh = true }
 local states, windows, configured, pending, previous, timer = {}, {}, false, false, nil, nil
 local api = vim.api
 local padding_ns = api.nvim_create_namespace('glow.notebook.layout')
@@ -70,6 +71,8 @@ local function outputs(buf)
   local count = api.nvim_buf_line_count(buf)
   for _, mark in ipairs(api.nvim_buf_get_extmarks(buf, molten_ns, 0, -1, { details = true })) do
     local lines = mark[4].virt_lines
+    local canonical = require("config.platform.notebook_chrome_locale").canonical_lines(
+      buf, molten_ns, mark[1], lines)
     if mark[2] >= 0 and mark[2] < count and not mark[4].invalid and lines and is_output(lines) then
       -- Molten is the sole writer of its output. While running it replaces this
       -- mark every tick; adding padding here used to make its height oscillate.
@@ -77,10 +80,12 @@ local function outputs(buf)
       for index, chunks in ipairs(lines) do
         local text = line_text(chunks)
         width = math.max(width, vim.fn.strdisplaywidth(text))
+        -- Geometry uses the visible text; fold semantics use its canonical label.
+        local source = line_text(canonical[index])
         -- Molten 的真实折叠标记只会出现在末行，或首个状态行之后。
         -- 不因输出行数多、状态文字或任意省略号而猜测存在隐藏内容。
-        if (index == #lines and text:match('^󰁅 [1-9]%d* More lines%s*$'))
-            or (index == 2 and text:match('^↑ [1-9]%d* More lines%s*$')) then folded = true end
+        if (index == #lines and source:match('^󰁅 [1-9]%d* More lines%s*$'))
+            or (index == 2 and source:match('^↑ [1-9]%d* More lines%s*$')) then folded = true end
       end
       result[#result + 1] = { id = mark[1], row = mark[2], lines = #lines,
         width = width, folded = folded,
@@ -573,6 +578,7 @@ function M.virtual_output_geometry(win, buf, namespace, identifier)
   return area and copy(area) or nil
 end
 function M.refresh()
+  require("config.platform.notebook_chrome_locale").refresh()
   pending = false
   if not available() then return {} end
   for win, saved in pairs(windows) do
@@ -691,7 +697,7 @@ local function mouse_mapping(buf, state)
     for _, mapping in ipairs(api.nvim_buf_get_keymap(buf, mode)) do
       if mapping.lhs == '<LeftMouse>' then
         -- 模块热加载不把上一版自身映射叠进回放链。
-        if mapping.desc ~= '选中点击的 Notebook 输出单元格' then previous_map = mapping end
+        if mapping.desc ~= T("Select Clicked Notebook Output Cell") then previous_map = mapping end
         break
       end
     end
@@ -719,7 +725,7 @@ local function mouse_mapping(buf, state)
       end
       local keys = previous_map and previous_map.rhs or '<LeftMouse>'
       api.nvim_feedkeys(api.nvim_replace_termcodes(keys, true, false, true), 'ni', false)
-    end, { buffer = buf, silent = true, desc = '选中点击的 Notebook 输出单元格' })
+    end, { buffer = buf, silent = true, desc = T("Select Clicked Notebook Output Cell") })
   end
 end
 
@@ -757,8 +763,8 @@ function M.setup()
     if timer then timer:stop(); timer:close(); timer = nil end
     emit({})
   end })
-  api.nvim_create_user_command('GlowNotebookMetadata', function() M.toggle_metadata() end,
-    { desc = '显示或隐藏 Notebook 序列化元数据' })
+  require("config.platform.locale").command('GlowNotebookMetadata', function() M.toggle_metadata() end,
+    { desc = T("Show or Hide Notebook Serialization Metadata") })
   timer = vim.uv.new_timer()
   -- Molten changes extmarks without changing buffer text or firing TextChanged.
   timer:start(150, 150, vim.schedule_wrap(function()

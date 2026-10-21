@@ -1,3 +1,4 @@
+local function T(text) return require("config.platform.locale").t(text) end
 -- A public render-markdown custom handler. Parsing uses decommented strings;
 -- all decoration coordinates map back to the authoritative Python buffer.
 local M = {}
@@ -209,7 +210,7 @@ function M.parse(ctx)
           state.cache[cell.header] = cached
           if not ok and not state.warned then
             state.warned = true
-            vim.notify('Notebook Markdown 解析不可用，保留可编辑原文：' .. tostring(value), vim.log.levels.WARN)
+            vim.notify(T("Notebook Markdown parsing is unavailable. Editable source is preserved: ") .. tostring(value), vim.log.levels.WARN)
           end
         end
         keep[cell.header] = true

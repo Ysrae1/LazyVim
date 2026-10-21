@@ -1,3 +1,4 @@
+local function T(text) return require("config.platform.locale").t(text) end
 -- Native Notebook editing: Jupytext owns .ipynb serialization; Molten owns
 -- execution and output. Opening a document never starts a kernel or runs code.
 local M = {}
@@ -114,15 +115,10 @@ function M.cell_labels(buf)
     for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(buf, molten_namespace, 0, -1, { details = true })) do
       -- Read only the FIRST NONEMPTY Molten status line, then stop; never search
       -- printed results. Skipping empty rows also accepts older saved layout.
-      -- The current native UI does not rewrite Molten output virtual lines.
-      local header
-      for _, line in ipairs(mark[4].virt_lines or {}) do
-        local chunks = {}
-        for _, chunk in ipairs(line) do chunks[#chunks + 1] = chunk[1] end
-        local text = table.concat(chunks)
-        if not text:match("^%s*$") then header = text; break end
-      end
-      if header and header:match("^Out%[[^%]]*%]: %.%.%. Running") then
+      -- Resolve the product renderer's canonical status, independent of UI language.
+      local chrome = require("config.platform.notebook_chrome_locale")
+      local lines = chrome.canonical_lines(buf, molten_namespace, mark[1], mark[4].virt_lines)
+      if chrome.status(lines) == "running" then
         running_rows[#running_rows + 1] = mark[2]
       end
     end
@@ -318,8 +314,9 @@ function M.render_title(session, width, layout)
     or session.ready and selected or session.selected and ("■ " .. selected)
     or (" " .. prefix .. "jk")
   local compact = width < 64
-  local kernel_label = width < 40 and "K" or "KERNEL"
-  local cells_label, menu_label = width < 56 and "C" or "CELLS", width < 56 and "M" or "MENU"
+  local kernel_label = width < 40 and (require("config.platform.locale").current() == "zh" and T("KERNEL") or "K") or T("KERNEL")
+  local cells_label = width < 56 and (require("config.platform.locale").current() == "zh" and T("Cell") or "C") or T("CELLS")
+  local menu_label = width < 56 and (require("config.platform.locale").current() == "zh" and T("Menu") or "M") or T("MENU")
   local previous, following, gap = compact and "[c" or "↑ [c", compact and "]c" or "↓ ]c", compact and "  " or "   "
   local menu = prefix .. "j"
   local cells, cells_width = capsule("Cells", cells_label,
@@ -365,7 +362,7 @@ local function import_saved_outputs(session)
   local restored = session.restore_path
   local ok, err = pcall(execute, "MoltenImportOutput", { restored or session.path, session.kernel })
   if not ok then
-    notify("读取保存输出失败：" .. tostring(err))
+    notify(T("Unable to read saved outputs: ") .. tostring(err))
     return
   end
   session.imported = true
@@ -379,11 +376,11 @@ end
 local function ensure_ready(callback, kernel_name)
   local buf = vim.api.nvim_get_current_buf()
   local session = sessions[buf]
-  if not session then notify("请先打开 .ipynb Notebook。"); return false end
+  if not session then notify(T("Open an .ipynb Notebook first.")); return false end
   if session.ready then callback(session); return true end
   if callback then session.pending = callback end
   if session.starting then return true end
-  if vim.fn.exists(":MoltenInit") ~= 2 then fail(session, "Molten 未加载；请先安装 Notebook 运行环境并注册远程插件。"); return false end
+  if vim.fn.exists(":MoltenInit") ~= 2 then fail(session, T("Molten is not loaded. Install the Notebook runtime and register its remote plugin first.")); return false end
   local kernels = local_kernels()
   if #kernels > 0 then
     -- A kernel attached manually belongs to the user. Use it without claiming
@@ -399,13 +396,13 @@ local function ensure_ready(callback, kernel_name)
   title(buf)
   local before = vim.fn.MoltenRunningKernels()
   local ok, err = pcall(execute, "MoltenInit", { session.requested })
-  if not ok then fail(session, "无法启动内核：" .. tostring(err)); return false end
+  if not ok then fail(session, T("Unable to start kernel: ") .. tostring(err)); return false end
   local before_set = {}
   for _, kernel in ipairs(before) do before_set[kernel] = true end
   for _, kernel in ipairs(local_kernels()) do
     if not before_set[kernel] then session.kernel, session.owned = kernel, true; break end
   end
-  if not session.kernel then fail(session, "内核未能创建，请查看 :messages。" ); return false end
+  if not session.kernel then fail(session, T("The kernel could not be created. See :messages for details.") ); return false end
   -- The first evaluation/import must wait for MoltenKernelReady. Running it
   -- immediately after MoltenInit can lose output during upstream startup.
   return true
@@ -467,9 +464,9 @@ function M.available_kernels(callback)
   local python = require("config.media.runtime").python()
   vim.system({ python, "-c", kernel_discovery }, { text = true, timeout = 10000 }, function(result)
     vim.schedule(function()
-      if result.code ~= 0 then callback(nil, vim.trim(result.stderr or "无法查询 Jupyter 内核。")); return end
+      if result.code ~= 0 then callback(nil, vim.trim(result.stderr or T("Unable to query Jupyter kernels."))); return end
       local ok, items = pcall(vim.json.decode, result.stdout)
-      if not ok or type(items) ~= "table" then callback(nil, "Jupyter 内核列表格式无效。"); return end
+      if not ok or type(items) ~= "table" then callback(nil, T("The Jupyter kernel list is invalid.")); return end
       callback(items)
     end)
   end)
@@ -487,7 +484,7 @@ local function preserve_outputs(session)
   vim.fn.delete(python)
   if not ok then
     vim.fn.delete(notebook)
-    notify("为保留现有输出，已取消内核切换：" .. tostring(err), vim.log.levels.ERROR)
+    notify(T("Kernel switch cancelled to preserve existing outputs: ") .. tostring(err), vim.log.levels.ERROR)
     return false
   end
   if session.restore_path then vim.fn.delete(session.restore_path) end
@@ -496,14 +493,14 @@ local function preserve_outputs(session)
 end
 
 local function connect_kernel(session, selected)
-  if session.starting then notify("内核正在启动，请就绪后再切换。"); return end
+  if session.starting then notify(T("The kernel is starting. Wait until it is ready before switching.")); return end
   local kernels = local_kernels()
   if #kernels > 0 and (not session.owned or #kernels ~= 1 or kernels[1] ~= session.kernel) then
-    notify("此缓冲区连接了手动或共享内核；为保留用户内核，请先用 Molten 管理该连接，再选择新内核。")
+    notify(T("This buffer uses a manually connected or shared kernel. Manage that connection in Molten before selecting another kernel."))
     return
   end
   if session.selected and session.selected.resource_dir == selected.resource_dir and session.ready then
-    notify("当前已连接 " .. selected.display_name .. "。", vim.log.levels.INFO)
+    notify(T("Already connected to ") .. selected.display_name .. "。", vim.log.levels.INFO)
     return
   end
   if #kernels > 0 and not preserve_outputs(session) then return end
@@ -518,11 +515,11 @@ local function connect_kernel(session, selected)
       vim.fn.mkdir(directory, "p", 448)
       vim.fn.writefile({ vim.json.encode(selected.spec) }, directory .. "/kernel.json")
     end)
-    if not ok then notify("无法准备所选内核：" .. tostring(err), vim.log.levels.ERROR); return end
+    if not ok then notify(T("Unable to prepare the selected kernel: ") .. tostring(err), vim.log.levels.ERROR); return end
   end
   if #kernels > 0 then
     local ok, err = pcall(execute, "MoltenDeinit")
-    if not ok then notify("无法停止当前 Notebook 内核：" .. tostring(err), vim.log.levels.ERROR); return end
+    if not ok then notify(T("Unable to stop the current Notebook kernel: ") .. tostring(err), vim.log.levels.ERROR); return end
   end
   session.kernel, session.ready, session.starting, session.imported, session.owned = nil, false, false, false, false
   session.selected, session.requested = selected, alias
@@ -533,14 +530,14 @@ end
 function M.kernel(name)
   local buf = vim.api.nvim_get_current_buf()
   local session = sessions[buf]
-  if not session then notify("请先打开 .ipynb Notebook。"); return end
+  if not session then notify(T("Open an .ipynb Notebook first.")); return end
   if session.selecting then return end
   session.selecting = true
   M.available_kernels(function(items, err)
     session.selecting = false
     if not sessions[buf] or not vim.api.nvim_buf_is_valid(buf) then return end
-    if not items then notify("无法读取 Jupyter 内核：" .. tostring(err), vim.log.levels.ERROR); return end
-    if #items == 0 then notify("未找到 Python Jupyter 内核；请先在所需环境中配置 ipykernel。", vim.log.levels.ERROR); return end
+    if not items then notify(T("Unable to read Jupyter kernels: ") .. tostring(err), vim.log.levels.ERROR); return end
+    if #items == 0 then notify(T("No Python Jupyter kernel was found. Configure ipykernel in the intended environment first."), vim.log.levels.ERROR); return end
     local function choose(selected)
       if not selected then return end
       in_buffer(buf, function() connect_kernel(session, selected) end)
@@ -549,10 +546,10 @@ function M.kernel(name)
       for _, item in ipairs(items) do
         if item.name == name then choose(item); return end
       end
-      notify("找不到 Python 内核：" .. name, vim.log.levels.ERROR)
+      notify(T("Python kernel not found: ") .. name, vim.log.levels.ERROR)
       return
     end
-    vim.ui.select(items, { prompt = "选择 Notebook Python 内核（确认后连接）", format_item = function(item)
+    require("config.platform.locale").select(items, { prompt = T("Choose Notebook Python Kernel (Connect on Selection)"), format_item = function(item)
       return item.display_name .. "  ·  " .. item.executable .. "  [" .. item.name .. "]"
     end }, choose)
   end)
@@ -568,11 +565,11 @@ local function run_cells(all)
       ranges[#ranges + 1] = { cell.first, cell.last }
     end
   end
-  if #ranges == 0 then notify("当前范围没有可运行的代码单元格。", vim.log.levels.INFO); return end
+  if #ranges == 0 then notify(T("There are no runnable code cells in the current range."), vim.log.levels.INFO); return end
   local requested = sessions[buf] and sessions[buf].requested
   ensure_ready(function(session)
     if vim.api.nvim_buf_get_changedtick(buf) ~= changedtick then
-      notify("内核启动期间代码已修改，请重新运行所需单元格。")
+      notify(T("Code changed while the kernel was starting. Run the desired cells again."))
       return
     end
     for _, range in ipairs(ranges) do
@@ -606,7 +603,7 @@ end
 
 function M.add(kind, placement)
   local buf = vim.api.nvim_get_current_buf()
-  if not sessions[buf] then notify("请先打开 .ipynb Notebook。"); return end
+  if not sessions[buf] then notify(T("Open an .ipynb Notebook first.")); return end
   local cell = current_cell(buf)
   local row = cell and (placement == "above" and math.max(0, cell.header - 1) or cell.finish) or vim.api.nvim_buf_line_count(buf)
   local markdown = kind == "markdown"
@@ -621,13 +618,12 @@ local function clear_cell_output(cell)
   local session = sessions[vim.api.nvim_get_current_buf()]
   if not session or not session.ready or cell.first > cell.last then return true end
   for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(session.buf, -1, { cell.first - 1, 0 }, { cell.last - 1, -1 }, { details = true })) do
-    for _, line in ipairs(mark[4].virt_lines or {}) do
-      for _, chunk in ipairs(line) do
-        if chunk[1]:find("Out[", 1, true) and (chunk[1]:find("Running", 1, true) or chunk[1]:find("On Hold", 1, true)) then
-          notify("当前单元格仍在运行，请先中断或等待结束再修改类型或删除。")
-          return false
-        end
-      end
+    local chrome = require("config.platform.notebook_chrome_locale")
+    local lines = chrome.canonical_lines(session.buf, mark[4].ns_id, mark[1], mark[4].virt_lines)
+    local status = chrome.status(lines)
+    if status == "running" or status == "pending" then
+      notify(T("This cell is still running. Interrupt it or wait before changing its type or deleting it."))
+      return false
     end
   end
   local original = vim.api.nvim_win_get_cursor(0)
@@ -637,13 +633,13 @@ local function clear_cell_output(cell)
     execute("MoltenDelete")
   end)
   vim.api.nvim_win_set_cursor(0, original)
-  if not ok then notify("无法清理当前单元格输出：" .. tostring(err), vim.log.levels.ERROR) end
+  if not ok then notify(T("Unable to clear this cell's output: ") .. tostring(err), vim.log.levels.ERROR) end
   return ok
 end
 
 function M.convert_cell(kind)
   local buf = vim.api.nvim_get_current_buf()
-  if not sessions[buf] then notify("请先打开 .ipynb Notebook。"); return end
+  if not sessions[buf] then notify(T("Open an .ipynb Notebook first.")); return end
   local cell = current_cell(buf)
   if not cell or cell.kind == kind then return end
   if not clear_cell_output(cell) then return end
@@ -666,7 +662,7 @@ end
 
 function M.delete_cell()
   local buf = vim.api.nvim_get_current_buf()
-  if not sessions[buf] then notify("请先打开 .ipynb Notebook。"); return end
+  if not sessions[buf] then notify(T("Open an .ipynb Notebook first.")); return end
   local cell = current_cell(buf)
   if not cell or not clear_cell_output(cell) then return end
   vim.api.nvim_buf_set_lines(buf, math.max(0, cell.header - 1), cell.finish, false, {})
@@ -682,7 +678,7 @@ function M.output()
     -- the deliberate source-to-output focus transition, as upstream recommends.
     vim.cmd({ cmd = "MoltenEnterOutput", mods = { noautocmd = true } })
   end)
-  if not ok then notify(err and ("无法打开单元格输出：" .. err) or "当前单元格没有可查看的输出。") end
+  if not ok then notify(err and (T("Unable to open cell output: ") .. err) or T("This cell has no output to display.")) end
 end
 
 function M.interrupt()
@@ -711,7 +707,7 @@ local function export(buf)
     session.save_error = true
     dirty.failed(buf)
     title(buf)
-    local message = "代码已写入 Notebook，但新输出未保存：Python Treesitter 解析器不可用。" .. tostring(parser_error)
+    local message = T("Code was written to the Notebook, but new outputs were not saved: the Python Treesitter parser is unavailable.") .. tostring(parser_error)
     notify(message, vim.log.levels.ERROR)
     error(message, 0)
   end
@@ -720,7 +716,7 @@ local function export(buf)
   if ok then dirty.saved(buf, token) else dirty.failed(buf) end
   title(buf)
   if not ok then
-    local message = "Notebook 新输出保存失败：" .. tostring(err)
+    local message = T("Unable to save new Notebook outputs: ") .. tostring(err)
     notify(message, vim.log.levels.ERROR)
     error(message, 0)
   end
@@ -728,14 +724,14 @@ end
 
 local function describe_navigation(buf)
   local descriptions = {
-    ["[["] = "上一个 Python 顶层定义", ["]]"] = "下一个 Python 顶层定义",
-    ["[]"] = "上一个 Python 顶层定义结尾", ["]["] = "下一个 Python 顶层定义结尾",
-    ["[m"] = "上一个 Python 定义", ["]m"] = "下一个 Python 定义",
-    ["[M"] = "上一个 Python 定义结尾", ["]M"] = "下一个 Python 定义结尾",
-    ["[l"] = "上一条位置列表结果", ["]l"] = "下一条位置列表结果",
-    ["[L"] = "位置列表首条结果", ["]L"] = "位置列表末条结果",
-    ["[q"] = "上一条 Quickfix 结果", ["]q"] = "下一条 Quickfix 结果",
-    ["[Q"] = "Quickfix 首条结果", ["]Q"] = "Quickfix 末条结果",
+    ["[["] = T("Previous Top-Level Python Definition"), ["]]"] = T("Next Top-Level Python Definition"),
+    ["[]"] = T("End of Previous Top-Level Python Definition"), ["]["] = T("End of Next Top-Level Python Definition"),
+    ["[m"] = T("Previous Python Definition"), ["]m"] = T("Next Python Definition"),
+    ["[M"] = T("End of Previous Python Definition"), ["]M"] = T("End of Next Python Definition"),
+    ["[l"] = T("Previous Location List Result"), ["]l"] = T("Next Location List Result"),
+    ["[L"] = T("First Location List Result"), ["]L"] = T("Last Location List Result"),
+    ["[q"] = T("Previous Quickfix Result"), ["]q"] = T("Next Quickfix Result"),
+    ["[Q"] = T("First Quickfix Result"), ["]Q"] = T("Last Quickfix Result"),
   }
   in_buffer(buf, function()
     for _, mode in ipairs({ "n", "x", "o" }) do
@@ -770,30 +766,30 @@ local function attach(buf, reload)
   local function map(mode, keys, action, description)
     vim.keymap.set(mode, keys, action, { buffer = buf, silent = true, desc = description })
   end
-  map("n", "<S-CR>", M.run, "运行 Notebook 单元格")
-  map("i", "<S-CR>", function() vim.cmd.stopinsert(); vim.schedule(M.run) end, "运行 Notebook 单元格")
-  map("n", "<localleader>nr", M.run, "运行当前单元格")
-  map("n", "<localleader>na", M.run_all, "运行所有代码单元格")
-  map("n", "<localleader>no", M.output, "滚动查看单元格输出")
-  map("n", "<localleader>ni", M.interrupt, "中断 Notebook 内核")
-  map("n", "<localleader>nk", M.kernel, "启动 Notebook 内核")
-  map("n", "<localleader>nc", function() M.add("code") end, "添加代码单元格")
-  map("n", "<localleader>nm", function() M.add("markdown") end, "添加 Markdown 单元格")
-  map("n", "<leader>jk", M.kernel, "选择 Notebook 内核")
-  map("n", "<leader>jr", M.run, "运行当前单元格")
-  map("n", "<leader>jA", M.run_all, "运行所有代码单元格")
-  map("n", "<leader>jo", M.output, "滚动查看单元格输出")
-  map("n", "<leader>ji", M.interrupt, "中断 Notebook 内核")
-  map("n", "<leader>j00", M.restart, "重启 Notebook 内核")
-  map("n", "<leader>ja", function() M.add("code", "above") end, "上方插入代码单元格")
-  map("n", "<leader>jb", function() M.add("code") end, "下方插入代码单元格")
-  map("n", "<leader>jc", function() M.add("code") end, "下方插入代码单元格")
-  map("n", "<leader>jM", function() M.add("markdown") end, "下方插入 Markdown 单元格")
-  map("n", "<leader>jm", function() M.convert_cell("markdown") end, "当前单元格转 Markdown")
-  map("n", "<leader>jy", function() M.convert_cell("code") end, "当前单元格转代码")
-  map("n", "<leader>jdd", M.delete_cell, "删除当前单元格")
-  map("n", "]c", function() M.jump(1) end, "下一个 Notebook 单元格")
-  map("n", "[c", function() M.jump(-1) end, "上一个 Notebook 单元格")
+  map("n", "<S-CR>", M.run, T("Run Notebook Cell"))
+  map("i", "<S-CR>", function() vim.cmd.stopinsert(); vim.schedule(M.run) end, T("Run Notebook Cell"))
+  map("n", "<localleader>nr", M.run, T("Run Current Cell"))
+  map("n", "<localleader>na", M.run_all, T("Run All Code Cells"))
+  map("n", "<localleader>no", M.output, T("Scroll Cell Output"))
+  map("n", "<localleader>ni", M.interrupt, T("Interrupt Notebook Kernel"))
+  map("n", "<localleader>nk", M.kernel, T("Start Notebook Kernel"))
+  map("n", "<localleader>nc", function() M.add("code") end, T("Add Code Cell"))
+  map("n", "<localleader>nm", function() M.add("markdown") end, T("Add Markdown Cell"))
+  map("n", "<leader>jk", M.kernel, T("Choose Notebook Kernel"))
+  map("n", "<leader>jr", M.run, T("Run Current Cell"))
+  map("n", "<leader>jA", M.run_all, T("Run All Code Cells"))
+  map("n", "<leader>jo", M.output, T("Scroll Cell Output"))
+  map("n", "<leader>ji", M.interrupt, T("Interrupt Notebook Kernel"))
+  map("n", "<leader>j00", M.restart, T("Restart Notebook Kernel"))
+  map("n", "<leader>ja", function() M.add("code", "above") end, T("Insert Code Cell Above"))
+  map("n", "<leader>jb", function() M.add("code") end, T("Insert Code Cell Below"))
+  map("n", "<leader>jc", function() M.add("code") end, T("Insert Code Cell Below"))
+  map("n", "<leader>jM", function() M.add("markdown") end, T("Insert Markdown Cell Below"))
+  map("n", "<leader>jm", function() M.convert_cell("markdown") end, T("Convert Cell to Markdown"))
+  map("n", "<leader>jy", function() M.convert_cell("code") end, T("Convert Cell to Code"))
+  map("n", "<leader>jdd", M.delete_cell, T("Delete Current Cell"))
+  map("n", "]c", function() M.jump(1) end, T("Next Notebook Cell"))
+  map("n", "[c", function() M.jump(-1) end, T("Previous Notebook Cell"))
   describe_navigation(buf)
   local ok, which_key = pcall(require, "which-key")
   if ok then which_key.add({ { "<leader>j", group = "Jupyter Notebook", icon = "", buffer = buf } }) end
@@ -867,29 +863,29 @@ function M.route_open(opts)
   end
   local win = vim.api.nvim_get_current_win()
   if vim.wo[win].winfixbuf or vim.api.nvim_win_get_config(win).relative ~= "" then
-    error("无法找到可编辑的 Notebook 窗口。", 0)
+    error(T("No editable Notebook window was found."), 0)
   end
   return win
 end
 
 function M.open(path, opts)
   opts = opts or {}
-  if not M.supports(path) then notify("请选择 .ipynb 文件。"); return false end
+  if not M.supports(path) then notify(T("Select an .ipynb file.")); return false end
   M.setup()
   path = M.resolve_path(path)
-  if vim.fn.filereadable(path) ~= 1 then notify("无法读取 Notebook：" .. path); return false end
-  if not require("config.media.runtime").ready() then notify("Notebook 运行环境尚未安装，请先执行配套安装脚本。"); return false end
+  if vim.fn.filereadable(path) ~= 1 then notify(T("Unable to read Notebook: ") .. path); return false end
+  if not require("config.media.runtime").ready() then notify(T("The Notebook runtime is not installed. Run the included setup script first.")); return false end
   local valid, reason = pcall(require("config.media.runtime").read_notebook, path)
-  if not valid then notify("无法打开 Notebook：" .. tostring(reason), vim.log.levels.ERROR); return false end
+  if not valid then notify(T("Unable to open Notebook: ") .. tostring(reason), vim.log.levels.ERROR); return false end
   local ok, err = pcall(function()
     M.route_open(opts)
     execute("edit", { path })
     if not require("config.media.runtime").complete_notebook_load(vim.api.nvim_get_current_buf()) then
-      error("Notebook 尚未读入 percent 源码，请重新打开文件。", 0)
+      error(T("The Notebook has not loaded its percent-format source. Reopen the file."), 0)
     end
     attach(vim.api.nvim_get_current_buf())
   end)
-  if not ok then notify("无法打开 Notebook：" .. tostring(err), vim.log.levels.ERROR); return false end
+  if not ok then notify(T("Unable to open Notebook: ") .. tostring(err), vim.log.levels.ERROR); return false end
   return true
 end
 
@@ -951,22 +947,26 @@ function M.setup()
     label_signatures[event.buf] = nil
   end })
   local commands = {
-    GlowNotebook = { function(args) M.open(args.args ~= "" and args.args or vim.api.nvim_buf_get_name(0)) end, "?", "打开原生可编辑 Notebook" },
-    GlowNotebookRun = { M.run, 0, "运行当前代码单元格" },
-    GlowNotebookRunAll = { M.run_all, 0, "运行所有代码单元格" },
-    GlowNotebookOutput = { M.output, 0, "滚动查看原生单元格输出" },
-    GlowNotebookInterrupt = { M.interrupt, 0, "中断 Notebook 内核" },
-    GlowNotebookRestart = { M.restart, 0, "重启 Notebook 内核" },
-    GlowNotebookKernel = { function(args) M.kernel(args.args) end, "?", "选择或切换 Notebook Python 内核" },
-    GlowNotebookAddCode = { function() M.add("code") end, 0, "添加代码单元格" },
-    GlowNotebookAddMarkdown = { function() M.add("markdown") end, 0, "添加 Markdown 单元格" },
-    GlowNotebookMarkdown = { function() M.convert_cell("markdown") end, 0, "当前单元格转 Markdown" },
-    GlowNotebookCode = { function() M.convert_cell("code") end, 0, "当前单元格转代码" },
-    GlowNotebookDeleteCell = { M.delete_cell, 0, "删除当前 Notebook 单元格" },
+    GlowNotebook = { function(args) M.open(args.args ~= "" and args.args or vim.api.nvim_buf_get_name(0)) end, "?", T("Open Editable Notebook") },
+    GlowNotebookRun = { M.run, 0, T("Run Current Code Cell") },
+    GlowNotebookRunAll = { M.run_all, 0, T("Run All Code Cells") },
+    GlowNotebookOutput = { M.output, 0, T("Scroll Native Cell Output") },
+    GlowNotebookInterrupt = { M.interrupt, 0, T("Interrupt Notebook Kernel") },
+    GlowNotebookRestart = { M.restart, 0, T("Restart Notebook Kernel") },
+    GlowNotebookKernel = { function(args) M.kernel(args.args) end, "?", T("Choose or Switch Notebook Python Kernel") },
+    GlowNotebookAddCode = { function() M.add("code") end, 0, T("Add Code Cell") },
+    GlowNotebookAddMarkdown = { function() M.add("markdown") end, 0, T("Add Markdown Cell") },
+    GlowNotebookMarkdown = { function() M.convert_cell("markdown") end, 0, T("Convert Cell to Markdown") },
+    GlowNotebookCode = { function() M.convert_cell("code") end, 0, T("Convert Cell to Code") },
+    GlowNotebookDeleteCell = { M.delete_cell, 0, T("Delete Current Notebook Cell") },
   }
   for name, command in pairs(commands) do
-    vim.api.nvim_create_user_command(name, command[1], { nargs = command[2], desc = command[3], force = true })
+    require("config.platform.locale").command(name, command[1], { nargs = command[2], desc = command[3], force = true })
   end
+end
+
+function M.refresh_titles()
+  for buf in pairs(sessions) do if vim.api.nvim_buf_is_valid(buf) then title(buf) end end
 end
 
 return M

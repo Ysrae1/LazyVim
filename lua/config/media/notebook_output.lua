@@ -1,3 +1,4 @@
+local function T(text) return require("config.platform.locale").t(text) end
 -- Reuse Molten's output buffer and image window; only its focused view scrolls.
 local M = {}
 local api = vim.api
@@ -96,7 +97,7 @@ local function position(win, style)
   -- One padding row plus at least one scrollable text row must remain below
   -- the original joint. Never move the viewer upward or keep stale large bounds.
   if bottom - top < 2 or width < 3 then
-    return false, "窗口下方空间不足，请先向下滚动正文或增大窗口。"
+    return false, T("There is not enough space below this window. Scroll the document down or enlarge the window.")
   end
   local config = {
     relative = "editor", row = top, col = left, width = width - 1, height = bottom - top - 1,
@@ -171,12 +172,12 @@ function M.enter(open)
     vim.keymap.set("n", keys, action, { buffer = buf, silent = true, desc = description })
   end
   -- j/k, Ctrl+d/u, Ctrl+f/b and the vertical wheel keep Neovim's scrolling.
-  for _, keys in ipairs({ "h", "<Left>" }) do map(keys, "zh", "输出向左滚动") end
-  for _, keys in ipairs({ "l", "<Right>" }) do map(keys, "zl", "输出向右滚动") end
-  map("<ScrollWheelLeft>", "3zh", "输出向左滚动")
-  map("<ScrollWheelRight>", "3zl", "输出向右滚动")
-  map("<leader>y", '"+yy', "复制输出当前行到系统剪贴板")
-  vim.keymap.set("x", "<leader>y", '"+y', { buffer = buf, silent = true, desc = "复制选中输出到系统剪贴板" })
+  for _, keys in ipairs({ "h", "<Left>" }) do map(keys, "zh", T("Scroll Output Left")) end
+  for _, keys in ipairs({ "l", "<Right>" }) do map(keys, "zl", T("Scroll Output Right")) end
+  map("<ScrollWheelLeft>", "3zh", T("Scroll Output Left"))
+  map("<ScrollWheelRight>", "3zl", T("Scroll Output Right"))
+  map("<leader>y", '"+yy', T("Copy Current Output Line to System Clipboard"))
+  vim.keymap.set("x", "<leader>y", '"+y', { buffer = buf, silent = true, desc = T("Copy Selected Output to System Clipboard") })
   local function close(return_to_source)
     if not api.nvim_win_is_valid(win) then return end
     restore()
@@ -185,8 +186,8 @@ function M.enter(open)
     -- existing popup normally; source cells, inline marks and kernels persist.
     if api.nvim_win_is_valid(win) then api.nvim_win_close(win, true) end
   end
-  map("q", function() close(true) end, "关闭输出并返回 Notebook")
-  map("<Esc>", function() close(true) end, "关闭输出并返回 Notebook")
+  map("q", function() close(true) end, T("Close Output and Return to Notebook"))
+  map("<Esc>", function() close(true) end, T("Close Output and Return to Notebook"))
   local wheel_pending = false
   vim.on_key(function(key, typed)
     if wheel_pending or not (wheel_key(key) or wheel_key(typed)) then return end

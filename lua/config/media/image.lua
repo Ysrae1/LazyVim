@@ -1,3 +1,4 @@
+local function T(text) return require("config.platform.locale").t(text) end
 -- Native Neovide image preview. Keep the frozen Snacks version: the experimental
 -- neovide-image branch predates it and requires an unmerged vim.img API.
 -- Like that branch, image transport goes over RPC; decoding belongs to the GUI.
@@ -17,7 +18,7 @@ local function available()
 end
 
 local function notify(message)
-  vim.notify(message, vim.log.levels.WARN, { title = "图片预览" })
+  vim.notify(message, vim.log.levels.WARN, { title = T("Image Preview") })
 end
 
 local function rpc(method, ...)
@@ -48,20 +49,21 @@ end
 -- No filename here: the existing buffer/status line already identifies it.
 function M.render_title(view, width)
   local zoom = ("×%.2g"):format(view.zoom or 1)
-  local state = view.error and "ERROR" or view.width and zoom or "…"
+  local state = view.error and T("ERROR") or view.width and zoom or "…"
   local detailed = view.width and not view.error and (state .. (" · %d×%d"):format(view.width, view.height)) or state
   local function layout(compact, dimensions, pan, zoom_keys, status)
+    local function label(short, full) return compact and require("config.platform.locale").current() ~= "zh" and short or T(full) end
     local left, left_width = "", 0
-    if status then left, left_width = capsule.format("GlowMediaInfo", compact and "V" or "VIEW", dimensions and detailed or state) end
+    if status then left, left_width = capsule.format("GlowMediaInfo", label("V", "VIEW"), dimensions and detailed or state) end
     local right, right_width = {}, 0
     local function add(group, label, value)
       local text, size = capsule.format("GlowMedia" .. group, label, value)
       right[#right + 1], right_width = text, right_width + size + (#right > 0 and 1 or 0)
     end
-    if zoom_keys then add("Action", compact and "Z" or "ZOOM", "+ − · 0") end
-    if pan then add("Action", compact and "P" or "PAN", "hjkl") end
-    if view.error then add("Menu", compact and "R" or "RETRY", "r") end
-    add("Menu", compact and "Q" or "CLOSE", "q")
+    if zoom_keys then add("Action", label("Z", "ZOOM"), "+ − · 0") end
+    if pan then add("Action", label("P", "PAN"), "hjkl") end
+    if view.error then add("Menu", label("R", "RETRY"), "r") end
+    add("Menu", label("Q", "CLOSE"), "q")
     return capsule.bar(left, table.concat(right, " "), left_width, right_width)
   end
   for _, variant in ipairs({
@@ -159,10 +161,10 @@ function M.refresh()
           message(view, { view.error })
         else
           active[view.id] = view
-          message(view, { "正在加载图片…", "", "q / Esc 关闭；Tab / Shift-Tab 切换标签页。" })
+          message(view, { T("Loading image…"), "", T("q / Esc: close; Tab / Shift-Tab: switch tabs.") })
         end
         if view.id and not rpc("load", view.id, path) then
-          view.error = "无法连接 Neovide 图片预览。"
+          view.error = T("Unable to connect to Neovide image preview.")
           message(view, { view.error })
         end
       end
@@ -196,7 +198,7 @@ function M.on_status(id, width, height, err)
   end
   if err and err ~= vim.NIL and err ~= "" then
     view.error = tostring(err)
-    message(view, { "图片加载失败", "", view.error, "", "r 重试；q / Esc 关闭。" })
+    message(view, { T("Image could not be loaded"), "", view.error, "", T("r: retry; q / Esc: close.") })
     notify(view.error)
   else
     view.width, view.height, view.error = width, height, nil
@@ -283,20 +285,20 @@ local function buffer(path)
   local function map(lhs, callback, desc)
     vim.keymap.set("n", lhs, callback, { buffer = buf, silent = true, desc = desc })
   end
-  map("+", function() M.zoom(1.25) end, "放大图片")
-  map("=", function() M.zoom(1.25) end, "放大图片")
-  map("-", function() M.zoom(0.8) end, "缩小图片")
-  map("0", M.fit, "图片适应窗口")
-  map("f", M.fit, "图片适应窗口")
-  map("h", function() M.pan(-1, 0) end, "图片向左平移")
-  map("l", function() M.pan(1, 0) end, "图片向右平移")
-  map("k", function() M.pan(0, -1) end, "图片向上平移")
-  map("j", function() M.pan(0, 1) end, "图片向下平移")
-  map("r", M.retry, "重新加载图片")
-  map("q", M.close, "关闭图片预览")
-  map("<Esc>", M.close, "关闭图片预览")
-  map("<Tab>", "gt", "下一个标签页")
-  map("<S-Tab>", "gT", "上一个标签页")
+  map("+", function() M.zoom(1.25) end, T("Zoom In Image"))
+  map("=", function() M.zoom(1.25) end, T("Zoom In Image"))
+  map("-", function() M.zoom(0.8) end, T("Zoom Out Image"))
+  map("0", M.fit, T("Fit Image to Window"))
+  map("f", M.fit, T("Fit Image to Window"))
+  map("h", function() M.pan(-1, 0) end, T("Pan Image Left"))
+  map("l", function() M.pan(1, 0) end, T("Pan Image Right"))
+  map("k", function() M.pan(0, -1) end, T("Pan Image Up"))
+  map("j", function() M.pan(0, 1) end, T("Pan Image Down"))
+  map("r", M.retry, T("Reload Image"))
+  map("q", M.close, T("Close Image Preview"))
+  map("<Esc>", M.close, T("Close Image Preview"))
+  map("<Tab>", "gt", T("Next Tab"))
+  map("<S-Tab>", "gT", T("Previous Tab"))
   return buf
 end
 
@@ -304,11 +306,11 @@ end
 function M.open(path, opts)
   opts = opts or {}
   if not available() then
-    notify("当前 Neovide 未提供原生图片预览；请使用本项目新构建。")
+    notify(T("This Neovide build does not provide native image preview. Use a current Glow build."))
     return false
   end
   if not M.supports(path) then
-    notify("暂不支持该图片格式。支持 PNG、JPEG、GIF（首帧）、WebP、BMP、TIFF、ICO。")
+    notify(T("Unsupported image format. Supported: PNG, JPEG, GIF (first frame), WebP, BMP, TIFF, ICO."))
     return false
   end
   M.setup()
@@ -349,7 +351,7 @@ function M.from_tree(event)
   end
   local ok, err = pcall(M.open, event.path, { win = win, command = split })
   if not ok then
-    notify("无法打开图片预览：" .. tostring(err))
+    notify(T("Unable to open image preview: ") .. tostring(err))
   end
   return { handled = true }
 end
@@ -379,9 +381,9 @@ function M.setup()
       end
     end,
   })
-  vim.api.nvim_create_user_command("GlowImage", function(args)
+  require("config.platform.locale").command("GlowImage", function(args)
     M.open(args.args ~= "" and args.args or vim.api.nvim_buf_get_name(0))
-  end, { nargs = "?", complete = "file", desc = "在 Neovide 内预览图片" })
+  end, { nargs = "?", complete = "file", desc = T("Preview Image in Neovide") })
 end
 
 return M

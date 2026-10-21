@@ -2,6 +2,7 @@
 (() => {
   'use strict';
   const notebook = JSON.parse(document.getElementById('notebook-data').textContent);
+  const ui = JSON.parse(document.getElementById('notebook-ui').textContent);
   const md = window.markdownit({html:false, linkify:false, typographer:false});
   const text = value => Array.isArray(value) ? value.join('') : (typeof value === 'string' ? value : '');
   const math = (source, display) => katex.renderToString(source, {
@@ -53,13 +54,13 @@
   const pre = value => element('pre','',text(value).replace(/\x1b\[[0-9;]*[A-Za-z]/g,''));
   const image = (mime,value) => {
     const img = element('img','output-image');
-    img.alt = mime === 'image/png' ? '已保存的 PNG 图表' : '已保存的 SVG 图表';
+    img.alt = mime === 'image/png' ? ui.png : ui.svg;
     img.src = 'data:' + mime + ';base64,' + (mime === 'image/svg+xml' ? btoa(unescape(encodeURIComponent(text(value)))) : text(value).replace(/\s/g,''));
     return img;
   };
   const staticHTML = value => {
     const frame = element('iframe','html-output');
-    frame.title = '已保存的静态 HTML 输出（脚本停用）';
+    frame.title = ui.html;
     frame.setAttribute('sandbox','');
     frame.srcdoc = '<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data: file:; font-src data:;"><style>body{font:14px -apple-system,BlinkMacSystemFont,sans-serif;margin:12px;color:#20242a;background:#fff}table{border-collapse:collapse}th,td{border:1px solid #d7dce2;padding:6px 10px}img,svg{max-width:100%;height:auto}pre{white-space:pre-wrap}</style>' + text(value);
     return frame;
@@ -85,16 +86,16 @@
         node.innerHTML = math(source,true); box.append(node);
       } else if (mime === 'application/json') box.append(pre(JSON.stringify(data[mime],null,2)));
       else if (mime) box.append(pre(data[mime]));
-      else box.append(element('p','muted','此输出没有可显示的已保存静态内容。'));
+      else box.append(element('p','muted',ui.empty));
     }
     return box;
   };
   const main = document.getElementById('cells');
-  const language = notebook.metadata && notebook.metadata.language_info && notebook.metadata.language_info.name || '代码';
+  const language = notebook.metadata && notebook.metadata.language_info && notebook.metadata.language_info.name || ui.code;
   notebook.cells.forEach((cell,index) => {
     const section = element('section','cell ' + cell.cell_type);
     section.dataset.cell = String(index + 1);
-    section.append(element('div','cell-label',(index + 1) + ' · ' + (cell.cell_type === 'code' ? language + ' [' + (cell.execution_count == null ? ' ' : cell.execution_count) + ']' : cell.cell_type === 'markdown' ? 'Markdown' : '原始文本')));
+    section.append(element('div','cell-label',(index + 1) + ' · ' + (cell.cell_type === 'code' ? language + ' [' + (cell.execution_count == null ? ' ' : cell.execution_count) + ']' : cell.cell_type === 'markdown' ? 'Markdown' : ui.raw)));
     if (cell.cell_type === 'markdown') {
       const body = element('div','markdown');
       body.innerHTML = md.render(text(cell.source));
@@ -114,6 +115,6 @@
     }
     main.append(section);
   });
-  document.getElementById('count').textContent = notebook.cells.length + ' 个单元格 · 保存输出查看';
+  document.getElementById('count').textContent = ui.count.replace('%d', String(notebook.cells.length));
   document.documentElement.dataset.rendered = 'true';
 })();

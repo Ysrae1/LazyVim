@@ -1,3 +1,4 @@
+local function T(text) return require("config.platform.locale").t(text) end
 -- Real SyncTeX CLI queries only. No compiler, shell command or GUI sync request.
 local M = {}
 local jobs, generation, configured = {}, 0, false
@@ -8,7 +9,8 @@ local function notify(message)
 end
 
 function M.native_enabled()
-  return vim.g.neovide_native_preview==true and type(vim.g.neovide_channel_id)=='number' and vim.g.glow_tex_viewer~='skim'
+  return vim.g.neovide_native_preview==true and vim.g.neovide_native_pdf_synctex~=false
+    and type(vim.g.neovide_channel_id)=='number' and vim.g.glow_tex_viewer~='skim'
 end
 
 local function path(value)
@@ -51,10 +53,10 @@ end
 
 local function query(mode,pdf,args,options,callback)
   local command=executable()
-  if not command then notify('找不到 synctex 命令，请安装 TeX 发行版或设置 g:glow_synctex_executable。'); return false end
+  if not command then notify(T("synctex was not found. Install a TeX distribution or set g:glow_synctex_executable.")); return false end
   pdf=path(pdf)
-  if vim.fn.filereadable(pdf)~=1 then notify('PDF 不存在：'..pdf); return false end
-  if not mapping(pdf) then notify('缺少 '..vim.fs.basename(pdf):gsub('%.pdf$','')..'.synctex(.gz)；请先用开启 SyncTeX 的编译结果，不会自动重编。'); return false end
+  if vim.fn.filereadable(pdf)~=1 then notify(T("PDF not found: ")..pdf); return false end
+  if not mapping(pdf) then notify(T("Missing ")..vim.fs.basename(pdf):gsub('%.pdf$','')..T(".synctex(.gz). Compile with SyncTeX enabled first; Glow will not rebuild automatically.")); return false end
   local key=mode..':'..pdf
   if jobs[key] then pcall(jobs[key].kill,jobs[key],9) end
   local argv={command,mode}; vim.list_extend(argv,args)
@@ -68,7 +70,7 @@ local function query(mode,pdf,args,options,callback)
         jobs[key]=nil
         if options.valid and not options.valid() then return end
         local parsed=result.code==0 and M.parse(result.stdout,mode)
-        if not parsed then notify('SyncTeX '..mode..' 未找到映射：'..vim.trim(result.stderr or result.stdout or ''):sub(1,240)); return end
+        if not parsed then notify('SyncTeX '..mode..T(" mapping not found: ")..vim.trim(result.stderr or result.stdout or ''):sub(1,240)); return end
         callback(parsed)
       end)
     end)
@@ -88,9 +90,9 @@ end
 
 function M.forward(pdf,opts)
   opts=opts or {}
-  if not M.native_enabled() then notify('当前未选择本项目原生 PDF；可继续使用 VimTeX / Skim。'); return false end
+  if not M.native_enabled() then notify(T("This native PDF viewer does not support coordinate synchronization. You can use VimTeX's external PDF viewer.")); return false end
   local source=path(vim.api.nvim_buf_get_name(0))
-  if not source:lower():match('%.tex$') then notify('请从 TeX 源文件执行正向跳转。'); return false end
+  if not source:lower():match('%.tex$') then notify(T("Run forward search from a TeX source file.")); return false end
   local position=vim.api.nvim_win_get_cursor(0)
   local win,tab=vim.api.nvim_get_current_win(),vim.api.nvim_get_current_tabpage()
   pdf=path(pdf or output_file())
@@ -109,7 +111,7 @@ function M.inverse(pdf,point,opts)
     function(result)
       local file=result.file:match('^/') and result.file or vim.fs.joinpath(vim.fs.dirname(pdf),result.file)
       file=path(file)
-      if vim.fn.filereadable(file)~=1 then notify('SyncTeX 返回的源文件不可读取：'..file); return end
+      if vim.fn.filereadable(file)~=1 then notify(T("The source file returned by SyncTeX cannot be read: ")..file); return end
       local win=opts.win
       if not win or not vim.api.nvim_win_is_valid(win) or (opts.tab and vim.api.nvim_win_get_tabpage(win)~=opts.tab) then
         for _,candidate in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
@@ -124,14 +126,14 @@ function M.inverse(pdf,point,opts)
         vim.api.nvim_win_set_cursor(0,{row,math.min(#line,result.column-1)})
         vim.cmd('normal! zz')
       end)
-      if not ok then notify('反向跳转未能打开源码：'..tostring(err)) end
+      if not ok then notify(T("Inverse search could not open the source: ")..tostring(err)) end
     end)
 end
 
 function M.setup()
   if configured then return end
   configured=true
-  vim.api.nvim_create_user_command('GlowTexForward',function(args)
+  require("config.platform.locale").command('GlowTexForward',function(args)
     local file=args.args~='' and args.args or nil
     -- File completion escapes spaces for Ex, while user-command args retain
     -- those backslashes. Preserve a readable literal path before decoding.
@@ -141,7 +143,7 @@ function M.setup()
     end
     M.forward(file)
   end,
-    {nargs='?',complete='file',desc='TeX 光标通过 SyncTeX 定位原生 PDF'})
+    {nargs='?',complete='file',desc=T("Locate TeX Cursor in Native PDF with SyncTeX")})
   vim.api.nvim_create_autocmd('VimLeavePre',{group=vim.api.nvim_create_augroup('GlowSyncTeX',{clear=true}),callback=function()
     generation=generation+1
     for _,job in pairs(jobs) do pcall(job.kill,job,9) end

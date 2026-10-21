@@ -19,6 +19,20 @@ end
 local api = vim.api
 local active
 local group = api.nvim_create_augroup("UserMatrixIntro", { clear = true })
+local namespace = api.nvim_create_namespace("GlowMatrixIntro")
+local function editor_material()
+  local normal = api.nvim_get_hl(0, { name = "Normal", link = false })
+  local policy = require("config.appearance.popup_materials").resolve("matrix_intro", normal, normal.bg)
+  -- Use the editor's RGB and absolute background alpha, including before a
+  -- theme defines Normal. The frontend replaces the covered cells with Src.
+  for _, name in ipairs({ "Normal", "NormalNC", "NormalFloat", "EndOfBuffer" }) do
+    api.nvim_set_hl(namespace, name, vim.tbl_extend("force", normal, { blend = policy.blend }))
+  end
+  if active and active.win and api.nvim_win_is_valid(active.win) then
+    api.nvim_win_set_hl_ns(active.win, namespace)
+  end
+end
+editor_material()
 
 local function geometry()
   local columns = math.max(1, vim.o.columns)
@@ -50,7 +64,7 @@ local function cleanup()
   end
 end
 
-local function open_intro()
+local function open_cover()
   if active then
     return
   end
@@ -60,18 +74,34 @@ local function open_intro()
   local opts = geometry()
   opts.style = "minimal"
   opts.border = "none"
-  local opened, win = pcall(api.nvim_open_win, intro.buf, true, opts)
+  opts.focusable = false
+  local opened, win = pcall(api.nvim_open_win, intro.buf, false, opts)
   if not opened then
     cleanup()
     return
   end
   intro.win = win
-  local started, job = pcall(vim.fn.jobstart, { "cmatrix-gm", "--intro", "--fps", "60", "--fade", "4", "-o" }, {
-    term = true,
-    on_exit = function()
-      vim.schedule(cleanup)
-    end,
-  })
+  vim.w[win].glow_popup_profile = "matrix_intro"
+  api.nvim_win_set_hl_ns(win, namespace)
+  vim.wo[win].winblend = 0
+end
+
+local function start_intro()
+  local intro = active
+  if not intro or not api.nvim_win_is_valid(intro.win) then
+    cleanup()
+    return
+  end
+  -- The dashboard must keep its original current window during initialization.
+  -- Only enter the cover temporarily to attach the asynchronous terminal job.
+  local started, job = pcall(api.nvim_win_call, intro.win, function()
+    return vim.fn.jobstart({ "cmatrix-gm", "--intro", "--fps", "60", "--fade", "4", "-o" }, {
+      term = true,
+      on_exit = function()
+        vim.schedule(cleanup)
+      end,
+    })
+  end)
   if not started or job <= 0 then
     cleanup()
     return
@@ -81,12 +111,13 @@ local function open_intro()
   vim.defer_fn(cleanup, 2000)
 end
 
+-- Create the cover before any plugin can flush a half-initialized dashboard.
+-- Neovide attaches its UI before sourcing init.lua, so editor geometry is ready.
+open_cover()
 api.nvim_create_autocmd("VimEnter", {
   group = group,
   once = true,
-  callback = function()
-    vim.schedule(open_intro)
-  end,
+  callback = start_intro,
 })
 api.nvim_create_autocmd("VimResized", {
   group = group,
@@ -97,3 +128,4 @@ api.nvim_create_autocmd("VimResized", {
   end,
 })
 api.nvim_create_autocmd("VimLeavePre", { group = group, callback = cleanup })
+api.nvim_create_autocmd("ColorScheme", { group = group, callback = editor_material })

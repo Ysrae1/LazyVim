@@ -197,7 +197,8 @@ local function overlay(source, target)
     while true do
       local name = uv.fs_scandir_next(iterator)
       if not name then break end
-      if name ~= "plugins" and name ~= "yazi.toml" and name ~= "init.lua" then
+      if name ~= "plugins" and name ~= "yazi.toml" and name ~= "init.lua"
+        and name ~= "theme.toml" and name ~= "glow-editor-palette.json" and name ~= "glow-editor.tmTheme" then
         local destination = target .. "/" .. name
         if not uv.fs_lstat(destination) then link_entry(source .. "/" .. name, destination) end
       end
@@ -224,7 +225,22 @@ local function overlay(source, target)
   if ok and vim.fn.executable(runtime.python()) == 1 then python = runtime.python() end
   if python == "" and vim.fn.has("win32") == 1 then python = vim.fn.exepath("python") end
   if python == "" then error("Yazi 原生预览配置需要 Python 3.11+（TOML 标准库）。") end
-  local output = vim.fn.system({ python, module_dir .. "/yazi/overlay.py", source, target, module_dir .. "/yazi" })
+  -- Yazi's terminal color-scheme detection can differ from Neovim in embedded
+  -- terminals. Resolve the editor palette at each opening, in the private
+  -- overlay only; never rewrite the standalone Yazi configuration.
+  local ok_colors, palette = pcall(function()
+    local base46 = require("base46")
+    return { background = vim.o.background, ui = base46.get_theme_tb("base_30"), syntax = base46.get_theme_tb("base_16") }
+  end)
+  if not ok_colors then
+    local fallback = require("config.appearance.themes.ayu_" .. vim.o.background .. "_customed")
+    palette = { background = vim.o.background, ui = fallback.base_30, syntax = fallback.base_16 }
+  end
+  local palette_file = target .. "/glow-editor-palette.json"
+  local palette_metadata = uv.fs_lstat(palette_file)
+  if palette_metadata and palette_metadata.type == "link" then assert(uv.fs_unlink(palette_file)) end
+  vim.fn.writefile({ vim.json.encode(palette) }, palette_file)
+  local output = vim.fn.system({ python, module_dir .. "/yazi/overlay.py", source, target, module_dir .. "/yazi", palette_file })
   if vim.v.shell_error ~= 0 then error("无法准备 Yazi 原生预览配置：" .. output) end
   local init = { 'require("' .. plugin_name .. '"):install()' }
   if vim.fn.filereadable(source .. "/init.lua") == 1 then init[#init + 1] = "dofile(" .. string.format("%q", source .. "/init.lua") .. ")" end

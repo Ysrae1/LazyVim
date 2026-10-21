@@ -42,9 +42,11 @@ M.config = {
   fff = { mode = "editor" }, -- FFF 搜索浮窗。
   notification = { mode = "editor" }, -- nvim-notify / notify 文件类型。
   terminal = { mode = "editor" }, -- 其它真实 terminal buffer 的浮窗。
+  matrix_intro = { mode = "editor" }, -- 开屏 Matrix 覆盖层。
+  matrix_dashboard = { mode = "editor" }, -- Dashboard 内嵌 Matrix 终端。
 }
 
--- 仅管理真实浮窗；普通 split、主编辑区、侧栏、Dashboard 内嵌终端不受影响。
+-- 仅管理真实浮窗；普通 split、主编辑区、侧栏与 Dashboard 主体不受影响。
 -- 优先级：w:glow_popup_profile 显式指定 > 插件 winhighlight 角色 > filetype > LSP 标记/终端 > default。
 -- 插件把 LSP 内容转交 Noice/Snacks 时，按实际承载窗口分类，不能只凭 markdown 猜 hover。
 function M.classify(win, mapping)
@@ -61,6 +63,7 @@ function M.classify(win, mapping)
     return false
   end
   for _, rule in ipairs({
+    { "^SnacksDashboardTerminal$", "matrix_dashboard" },
     { "^SnacksPickerPreview", "snacks_picker_preview" },
     { "^SnacksPickerInput", "snacks_picker_input" },
     { "^SnacksPickerList", "snacks_picker_list" },
@@ -164,6 +167,7 @@ function M.resolve(profile, normal, popup)
       local opacity = tonumber(vim.g.neovide_normal_opacity) or 1
       blend = math.floor((1 - math.max(0, math.min(1, opacity))) * 100 + 0.5)
     end
+    blend = require("config.platform.windows_appearance").popup_blend(blend)
     return { mode = mode, bg = normal.bg, blend = blend }
   end
   if mode == "opaque" then

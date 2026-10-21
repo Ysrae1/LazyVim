@@ -51,9 +51,10 @@ def color_lines(lines, output):
 
 
 class _Proxy:
-    def __init__(self, target, output, nvim=None, buffer=None):
+    def __init__(self, target, output, nvim=None, buffer=None, presentation=None):
         self._target, self._output = target, output
         self._nvim, self._buffer = nvim, buffer
+        self._presentation = presentation
 
     def __getattr__(self, name):
         return getattr(self._target, name)
@@ -64,35 +65,32 @@ class _Api(_Proxy):
         if "virt_lines" in options:
             options = dict(options, virt_lines=color_lines(options["virt_lines"], self._output))
             images = [{"path": chunk.img_path} for chunk in self._output.chunks if hasattr(chunk, "img_path")]
-            if images and self._nvim is not None:
-                # Keep the original output request/text intact. The native
-                # adapter owns separate image padding linked to this mark.
+            if self._nvim is not None:
+                # The Lua renderer owns only product chrome; output.chunks and
+                # user code/error/serialized data are never translated.
                 return self._nvim.exec_lua("""
-                  local buf,ns,row,col,opts,images,key=...
-                  local bridge=package.loaded['config.media.molten_images']
-                  if bridge and bridge.set_inline_output then
-                    return bridge.set_inline_output(buf,ns,row,col,opts,images,key)
-                  end
-                  return vim.api.nvim_buf_set_extmark(buf,ns,row,col,opts)
-                """, self._buffer, namespace, row, col, options, images, str(id(self._output)))
+                  local buf,ns,row,col,opts,images,key,presentation=...
+                  return require('config.platform.notebook_chrome_locale').write(
+                    buf,ns,row,col,opts,images,key,presentation)
+                """, self._buffer, namespace, row, col, options, images, str(id(self._output)), self._presentation)
         return self._target.set_extmark(namespace, row, col, options, **kwargs)
 
 
 class _Buffer(_Proxy):
     @property
     def api(self):
-        return _Api(self._target.api, self._output, self._nvim, self._target.number)
+        return _Api(self._target.api, self._output, self._nvim, self._target.number, self._presentation)
 
 
 class _Buffers(_Proxy):
     def __getitem__(self, number):
-        return _Buffer(self._target[number], self._output, self._nvim)
+        return _Buffer(self._target[number], self._output, self._nvim, presentation=self._presentation)
 
 
 class _Nvim(_Proxy):
     @property
     def buffers(self):
-        return _Buffers(self._target.buffers, self._output, self._target)
+        return _Buffers(self._target.buffers, self._output, self._target, presentation=self._presentation)
 
 
 
@@ -209,11 +207,28 @@ def install():
     @wraps(original)
     def show_virtual_output(self, anchor):
         nvim = self.nvim
-        self.nvim = _Nvim(nvim, self.output)
+        had_truncate = hasattr(self, "truncate_lines")
+        truncate = getattr(self, "truncate_lines", module.truncate_bottom)
+        presentation = {}
+        # Track the pinned formatter's actual truncation call, never a string
+        # which merely resembles a generated row in a user's output.
+        def truncated(lines, limit):
+            result = truncate(lines, limit)
+            if truncate is module.truncate_top:
+                presentation["fold_row"] = 2
+            elif truncate is module.truncate_bottom:
+                presentation["fold_row"] = len(result)
+            return result
+        self.truncate_lines = truncated
+        self.nvim = _Nvim(nvim, self.output, presentation=presentation)
         try:
             return original(self, anchor)
         finally:
             self.nvim = nvim
+            if had_truncate:
+                self.truncate_lines = truncate
+            else:
+                del self.truncate_lines
 
     show_virtual_output._glow_semantic_output = True
     cls.show_virtual_output = show_virtual_output

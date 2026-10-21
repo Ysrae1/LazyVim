@@ -1,3 +1,4 @@
+local function T(text) return require("config.platform.locale").t(text) end
 -- Saved output descriptors belong to original source spans, not current cell
 -- ordinals. Molten's own renderer provides the text, popup and image layout.
 local M = {}
@@ -33,7 +34,7 @@ local function request(buf, action, ...)
     local state = states[buf]
     if state and not state.warned then
       state.warned = true
-      vim.notify("读取已保存 Notebook 输出失败：" .. tostring(result), vim.log.levels.WARN)
+      vim.notify(T("Unable to read saved Notebook outputs: ") .. tostring(result), vim.log.levels.WARN)
     end
     return false
   end

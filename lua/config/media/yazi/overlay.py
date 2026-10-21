@@ -99,6 +99,9 @@ def main():
             text += "function M:seek(job) if original.seek then return original:seek(job) end end\nreturn M\n"
             (target / "plugins" / "neovide-glow-native-preview.yazi" / (entry + ".lua")).write_text(text, encoding="utf-8")
     (target / "yazi.toml").write_text("\n".join(dump(config)) + "\n", encoding="utf-8")
+    if len(sys.argv) > 4:
+        from theme import write_private_theme
+        write_private_theme(source, target, sys.argv[4], dump)
 
 
 if __name__ == "__main__":

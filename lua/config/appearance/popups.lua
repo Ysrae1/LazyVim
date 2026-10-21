@@ -1,6 +1,6 @@
 -- 浮窗底材最终覆盖层；可手调设置集中在 popup_materials.lua。
 local M = {}
-local bases = { "Normal", "NormalNC", "NormalFloat", "FloatBorder" }
+local bases = { "Normal", "NormalNC", "NormalFloat", "FloatBorder", "FloatTitle", "FloatFooter" }
 
 local function read(namespace)
   return vim.api.nvim_get_hl(namespace, {})
@@ -91,6 +91,44 @@ local function material(value, normal, popup, policy, base)
   return value
 end
 
+local picker_caption_tokens = {
+  GlowPickerPromptTitle = true, GlowPickerPreviewTitle = true, GlowPickerResultsTitle = true,
+  TelescopePromptTitle = true, TelescopePreviewTitle = true, TelescopeResultsTitle = true,
+}
+
+-- Generic captions inherit the float material; semantic picker title capsules
+-- retain their theme-owned RGB and stay opaque. Derive chunk-only groups so
+-- neither decision changes selections/diagnostics in the buffer body.
+local function captions(config, state)
+  local sources, changes = {}, {}
+  for _, field in ipairs({ "title", "footer" }) do
+    if type(config[field]) == "table" then
+      local chunks, changed = vim.deepcopy(config[field]), false
+      for _, chunk in ipairs(chunks) do
+        local groups = chunk[2]
+        groups = type(groups) == "table" and groups or { groups or (field == "title" and "FloatTitle" or "FloatFooter") }
+        local original = {}
+        for _, group in ipairs(groups) do
+          local name = type(group) == "number" and vim.api.nvim_get_hl_name_by_id(group) or group
+          local saved = state.caption_sources and state.caption_sources[name]
+          if saved then vim.list_extend(original, saved) else original[#original + 1] = name end
+        end
+        local derived = "GlowPopupCaption_" .. vim.fn.sha256(table.concat(original, ":")):sub(1, 20)
+        sources[derived] = original
+        if #groups ~= 1 or groups[1] ~= vim.fn.hlID(derived) and groups[1] ~= derived then
+          chunk[2], changed = derived, true
+        end
+      end
+      if changed then
+        changes[field], changes[field .. "_pos"] = chunks, config[field .. "_pos"]
+      end
+    end
+  end
+  local signature = vim.tbl_keys(sources)
+  table.sort(signature)
+  return sources, changes, table.concat(signature, ":")
+end
+
 local function source_namespace(win, mapping, state)
   local namespace = vim.api.nvim_get_hl_ns({ winid = win })
   if namespace == state.namespace then return state.source_namespace or 0 end
@@ -100,6 +138,91 @@ local function source_namespace(win, mapping, state)
     if next(value) ~= nil and (not value.link or value.link ~= mapping[name]) then return namespace end
   end
   return 0
+end
+
+-- Called only inside Nui's own border lifecycle. The border has its own
+-- buffer; source highlights here cannot affect syntax/selection in the body.
+function M.prepare_nui_border(border)
+  if not vim.g.neovide or not border.winid or not vim.api.nvim_win_is_valid(border.winid) then return end
+  local groups = {}
+  for _, line in ipairs(border._.lines or {}) do
+    for _, chunk in ipairs(line._texts or { line }) do
+      local group = chunk.extmark and chunk.extmark.hl_group
+      if type(group) == "string" then groups[group] = true end
+    end
+  end
+  vim.w[border.winid].glow_popup_caption_groups = vim.tbl_keys(groups)
+  M.apply({ border.winid })
+end
+
+local function nui_hooks()
+  local border, popup = package.loaded["nui.popup.border"], package.loaded["nui.popup"]
+  if not border then return end
+  local utils = require("nui.utils")._
+  local hooks = utils._glow_popup_material_hooks
+  if not hooks then
+    hooks = { originals = {} }
+    utils._glow_popup_material_hooks = hooks
+    -- These are provider utilities, not Neovim APIs. They run after the real
+    -- options/text exist and before Nui's internal redraw, under an exact
+    -- active-border/window guard. Ordinary Nui utility calls are unchanged.
+    local option, options, lines = utils.set_win_option, utils.set_win_options, utils.render_lines
+    utils.set_win_option = function(win, ...)
+      local result = vim.F.pack_len(option(win, ...))
+      local active = hooks.border
+      if active and active.winid == win then require("config.appearance.popups").prepare_nui_border(active) end
+      return vim.F.unpack_len(result)
+    end
+    utils.set_win_options = function(win, ...)
+      local result = vim.F.pack_len(options(win, ...))
+      if hooks.popup and hooks.popup.winid == win and vim.g.neovide then
+        require("config.appearance.popups").apply({ win })
+      end
+      return vim.F.unpack_len(result)
+    end
+    utils.render_lines = function(text, buf, ...)
+      local result = vim.F.pack_len(lines(text, buf, ...))
+      local active = hooks.border
+      if active and active.bufnr == buf then require("config.appearance.popups").prepare_nui_border(active) end
+      return vim.F.unpack_len(result)
+    end
+  end
+  local function wrap(provider, method, kind)
+    if not provider then return end
+    local key = kind .. ":" .. method
+    if hooks.originals[key] then return end
+    local original = provider[method]
+    -- Migrate only the previous Glow-marked closure. Do not layer a second
+    -- after-show hook or unwrap another plugin's methods during hot updates.
+    if kind == "border" and provider["_glow_material_" .. method] == original then
+      local previous
+      for index = 1, 20 do
+        local name, value = debug.getupvalue(original, index)
+        if not name then break end
+        if name == "original" and type(value) == "function" then previous = value; break end
+      end
+      assert(previous, "Unable to migrate the previous Glow Nui material hook")
+      original = previous
+    end
+    hooks.originals[key] = original
+    provider[method] = function(self, ...)
+      if not vim.g.neovide then return original(self, ...) end
+      local previous, mapping = hooks[kind], self._.winhighlight
+      hooks[kind] = self
+      -- Ensure a material boundary even when Nui has no explicit winhighlight.
+      local supplied = kind == "border" and method == "_open_window" and mapping == nil
+      if supplied then self._.winhighlight = "" end
+      local result = vim.F.pack_len(pcall(original, self, ...))
+      if supplied and self._.winhighlight == "" then self._.winhighlight = nil end
+      hooks[kind] = previous
+      if not result[1] then error(result[2], 0) end
+      if kind == "border" then require("config.appearance.popups").prepare_nui_border(self) end
+      return unpack(result, 2, result.n)
+    end
+    provider["_glow_material_" .. method] = provider[method]
+  end
+  for _, method in ipairs({ "_open_window", "_relayout", "set_text" }) do wrap(border, method, "border") end
+  wrap(popup, "_open_window", "popup")
 end
 
 local function provider_hooks()
@@ -118,9 +241,102 @@ local function provider_hooks()
   end
   after_show(package.loaded["which-key.view"], "show", "_glow_material_show")
   after_show(package.loaded["noice.view.nui"], "show", "_glow_material_show")
+
+  nui_hooks()
+
+  -- Snacks 2.30 的 list.on_show() 会直接 flush，show() 返回后再覆盖已经太晚。
+  -- 仅在已加载的 provider 内，借其 on_win 边界：此时 wo 已设置，列表尚未首绘。
+  local snacks = package.loaded["snacks.win"]
+  if not snacks and package.loaded.snacks then snacks = require("snacks.win") end
+  if snacks and snacks._glow_material_show ~= snacks.show then
+    local original = snacks.show
+    snacks.show = function(self, ...)
+      local mapping = self.opts.wo and self.opts.wo.winhighlight or ""
+      local picker = type(mapping) == "string" and mapping:find(":SnacksPicker", 1, true)
+      if type(mapping) == "table" then
+        for _, target in pairs(mapping) do
+          picker = picker or type(target) == "string" and target:match("^SnacksPicker")
+        end
+      end
+      if not vim.g.neovide or not picker then return original(self, ...) end
+      local updating = self:valid()
+      local on_win = self.opts.on_win
+      self.opts.on_win = function(win, ...)
+        -- 单窗处理避免关闭 provider 仍在构造的其它窗口（例如 backdrop）。
+        require("config.appearance.popups").apply({ win.win })
+        if on_win then return on_win(win, ...) end
+      end
+      local result = vim.F.pack_len(pcall(original, self, ...))
+      self.opts.on_win = on_win
+      if not result[1] then error(result[2], 0) end
+      -- 已存在的窗口走 update()，不会再调用 on_win。
+      if updating and self:valid() then require("config.appearance.popups").apply({ self.win }) end
+      vim.api.nvim_exec_autocmds("User", { pattern = "NeovideFloatChanged", modeline = false })
+      return unpack(result, 2, result.n)
+    end
+    snacks._glow_material_show = snacks.show
+  end
+  -- Scratch/input/notification windows use the same on_win boundary as picker.
+  -- Keep a separate guard so an already-running picker hook can be upgraded
+  -- without wrapping it again or requiring the user's editor to restart.
+  if snacks and snacks._glow_material_float_show ~= snacks.show then
+    local original = snacks.show
+    snacks.show = function(self, ...)
+      local mapping = self.opts.wo and self.opts.wo.winhighlight or ""
+      local picker = type(mapping) == "string" and mapping:find(":SnacksPicker", 1, true)
+      if type(mapping) == "table" then
+        for _, target in pairs(mapping) do picker = picker or type(target) == "string" and target:match("^SnacksPicker") end
+      end
+      if not vim.g.neovide or picker or self.opts.position ~= "float"
+        or self.opts.bo and self.opts.bo.filetype == "snacks_win_backdrop" then return original(self, ...) end
+      local updating, on_win = self:valid(), self.opts.on_win
+      self.opts.on_win = function(win, ...)
+        require("config.appearance.popups").apply({ win.win })
+        if on_win then return on_win(win, ...) end
+      end
+      local result = vim.F.pack_len(pcall(original, self, ...))
+      self.opts.on_win = on_win
+      if not result[1] then error(result[2], 0) end
+      if updating and self:valid() then require("config.appearance.popups").apply({ self.win }) end
+      return unpack(result, 2, result.n)
+    end
+    snacks._glow_material_float_show = snacks.show
+    snacks._glow_material_show = snacks.show
+  end
+  -- Providers also replace captions after show (input prompt, picker counters,
+  -- resize). Reapply at those provider methods, before their next redraw.
+  for _, method in ipairs({ "set_title", "update" }) do
+    local marker = "_glow_material_" .. method
+    if snacks and snacks[marker] ~= snacks[method] then
+      local original = snacks[method]
+      snacks[method] = function(self, ...)
+        local title, position = self.opts.title, self.opts.title_pos
+        local result = vim.F.pack_len(original(self, ...))
+        if method == "set_title" and vim.deep_equal(title, self.opts.title) and position == self.opts.title_pos then
+          return vim.F.unpack_len(result)
+        end
+        if vim.g.neovide and self:valid() and self.opts.position == "float"
+          and not (self.opts.bo and self.opts.bo.filetype == "snacks_win_backdrop") then
+          require("config.appearance.popups").apply({ self.win })
+        end
+        return vim.F.unpack_len(result)
+      end
+      snacks[marker] = snacks[method]
+    end
+  end
 end
 
-function M.apply()
+-- LazyLoad 后立即装 provider 钩子，不等待主题稳定用的 30ms 延时。
+-- 不提前加载 Snacks，也不覆盖 nvim_open_win/redraw 等全局 API。
+if vim.g.neovide then
+  vim.api.nvim_create_autocmd("User", {
+    group = vim.api.nvim_create_augroup("GlowPopupProviderHooks", { clear = true }),
+    pattern = "LazyLoad",
+    callback = provider_hooks,
+  })
+end
+
+function M.apply(windows)
   if not vim.g.neovide then return end
   provider_hooks()
   vim.o.pumblend = 0
@@ -143,7 +359,7 @@ function M.apply()
   end
   local sparse_cache, applied = {}, {}
 
-  for _, win in ipairs(vim.api.nvim_list_wins()) do
+  for _, win in ipairs(windows or vim.api.nvim_list_wins()) do
     local config = vim.api.nvim_win_get_config(win)
     if config.relative ~= "" or config.external then
       local filetype = vim.bo[vim.api.nvim_win_get_buf(win)].filetype
@@ -151,7 +367,7 @@ function M.apply()
       if is_backdrop(filetype, mapping) then
         -- 仅关闭明确标记的遮罩，不按尺寸、层级或是否可聚焦猜测工具窗口。
         pcall(vim.api.nvim_win_close, win, true)
-      elseif not is_dashboard(filetype, mapping) then
+      elseif not is_dashboard(filetype, mapping) or profiles.classify(win, mapping) == "matrix_dashboard" then
         local state = vim.w[win].glow_popup_material or {}
         local source = source_namespace(win, mapping, state)
         -- 迁移早期版本的派生映射；后续只保留原始映射，不再生成全局前缀组。
@@ -186,7 +402,14 @@ function M.apply()
         local text_overrides = require("config.appearance.popup_text").window_overrides(filetype, mapping)
         -- 同样的 NormalFloat 映射也可能同时用于通知和代码预览，不能共享局部弱色覆盖。
         local text_policy = next(text_overrides) and ":notification" or ""
-        local namespace = vim.api.nvim_create_namespace("GlowPopupMaterial:" .. vim.fn.sha256(source .. ":" .. original .. text_policy .. ":" .. profile))
+        local caption_sources, caption_changes, caption_signature = captions(config, state)
+        for _, name in ipairs(vim.w[win].glow_popup_caption_groups or {}) do
+          caption_sources[name] = { name }
+        end
+        local caption_keys = vim.tbl_keys(caption_sources)
+        table.sort(caption_keys)
+        caption_signature = table.concat(caption_keys, ":")
+        local namespace = vim.api.nvim_create_namespace("GlowPopupMaterial:" .. vim.fn.sha256(source .. ":" .. original .. text_policy .. ":" .. profile .. ":" .. caption_signature))
         if not applied[namespace] then
           applied[namespace] = true
           local private = source > 0 and read(source) or {}
@@ -211,12 +434,25 @@ function M.apply()
               value = resolve(name)
             elseif mapping[name] then
               value = resolve(mapping[name])
-            elseif name == "Normal" or (name ~= "FloatBorder" and (mapping.Normal or private.Normal)) then
+            elseif name == "Normal" or ((name == "NormalNC" or name == "NormalFloat") and (mapping.Normal or private.Normal)) then
               value = source_normal
             else
               value = resolve(name)
             end
             values[name] = material(value, source_normal, popup, policy, true)
+          end
+          for name, groups in pairs(caption_sources) do
+            local value, semantic = {}, false
+            for _, group in ipairs(groups) do
+              value = vim.tbl_extend("force", value, resolve(mapping[group] or group))
+              semantic = semantic or picker_caption_tokens[group] or picker_caption_tokens[mapping[group]]
+            end
+            if semantic and value.bg ~= nil then
+              value.blend = 0
+              values[name] = value
+            else
+              values[name] = material(value, source_normal, popup, policy, true)
+            end
           end
           for name, attrs in pairs(text_overrides) do
             values[name] = vim.tbl_extend("force", vim.deepcopy(resolve(name)), attrs)
@@ -228,9 +464,10 @@ function M.apply()
           for name, value in pairs(values) do vim.api.nvim_set_hl(namespace, name, value) end
         end
         vim.api.nvim_win_set_hl_ns(win, namespace)
+        if next(caption_changes) then vim.api.nvim_win_set_config(win, caption_changes) end
         if vim.wo[win].winblend ~= 0 then vim.wo[win].winblend = 0 end
         vim.w[win].glow_popup_material = { source_namespace = source, namespace = namespace,
-          profile = profile, mode = policy.mode }
+          profile = profile, mode = policy.mode, caption_sources = caption_sources }
       end
     end
   end

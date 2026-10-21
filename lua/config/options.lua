@@ -3,6 +3,10 @@
 -- Add any additional options here
 local opt = vim.opt
 
+require("config.platform.windows_paths").setup()
+require("config.platform.windows_storage").setup()
+require("config.platform.windows_shell").setup()
+
 -- 行号
 
 opt.relativenumber = true

@@ -1,9 +1,17 @@
 return {
   "folke/which-key.nvim",
-  opts = {
+  opts = function(_, opts)
+    require("config.platform.locale").setup_which_key(opts)
+    local additions = {
     win = { wo = { winblend = 0 } },
     icons = { separator = "󰁔" },
     spec = {
+      { "<leader>a", group = "Avante", mode = { "n", "x" } },
+      { "<leader>r", group = "Renaming" },
+      { "<leader>\\", desc = "Reveal Current File in NeoTree" },
+      { "<leader>\\\\", desc = "Reveal Current File in NeoTree" },
+      { "<leader>vs", desc = "Select Python Environment" },
+      { "<leader>vc", desc = "Restore Cached Python Environment" },
       { "<leader>t", group = "telescope and toggles" },
       { "<leader>v", group = "python venv selector", icon = "" }, -- group-- group
       -- { "<leader>ff", "<cmd>Telescope find_files<cr>", desc = "Find File", mode = "n" },
@@ -24,5 +32,10 @@ return {
       --   { "<leader>w", "<cmd>w<cr>", desc = "Write" },
       -- },
     },
-  },
+    }
+    opts.win = vim.tbl_deep_extend("force", opts.win or {}, additions.win)
+    opts.icons = vim.tbl_deep_extend("force", opts.icons or {}, additions.icons)
+    opts.spec = vim.list_extend(opts.spec or {}, additions.spec)
+    return opts
+  end,
 }

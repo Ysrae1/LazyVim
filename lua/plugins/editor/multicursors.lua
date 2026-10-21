@@ -8,7 +8,7 @@ return {
     opts = function()
       local mouse = require("config.editor.multicursor_mouse")
       local actions = require("config.editor.multicursor_actions")
-      return {
+      return require("config.platform.windows_edit_keymaps").configure_multicursors({
         normal_keys = {
           -- Navigation only moves the real cursor; confirm an edit point separately.
           ["j"] = { method = false, opts = {} },
@@ -29,7 +29,7 @@ return {
           ["gU"] = { method = function() actions.change_case(true) end, opts = { desc = "Uppercase selections" } },
           ["gu"] = { method = function() actions.change_case(false) end, opts = { desc = "Lowercase selections" } },
         },
-      }
+      })
     end,
     config = function(_, opts)
       require("multicursors").setup(opts)

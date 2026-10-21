@@ -1,3 +1,4 @@
+local function T(text) return require("config.platform.locale").t(text) end
 -- File-opening integration shared by Dashboard, pickers, :edit and :buffer.
 -- Only binary formats are intercepted; HTML source and Jupytext keep their readers.
 local M = {}
@@ -10,8 +11,9 @@ function M.kind(path)
   if type(vim.g.neovide_channel_id) ~= 'number' then return end
   if vim.g.neovide_native_image and require('config.media.image').supports(path) then return 'image' end
   if vim.g.neovide_native_preview then
-    local kind = require('config.media.preview').kind(path)
-    if kind and kind ~= 'web' then return kind end
+    local preview = require('config.media.preview')
+    local kind = preview.kind(path)
+    if kind and kind ~= 'web' and preview.available(kind) then return kind end
   end
 end
 
@@ -32,7 +34,7 @@ local function route(win, buf)
   if not M.kind(path) or vim.fn.filereadable(path) ~= 1 then return end
   local ok, result = pcall(M.open, path, { win = win, command = '' })
   if not ok or not result then
-    vim.notify('无法打开原生预览：' .. tostring(result), vim.log.levels.WARN, { title = '原生预览' })
+    vim.notify(T("Unable to open native preview: ") .. tostring(result), vim.log.levels.WARN, { title = T("Native Preview") })
   end
 end
 
@@ -52,7 +54,10 @@ function M.setup()
   local patterns = {}
   local function add(extensions)
     for _, ext in ipairs(extensions) do
-      patterns[#patterns + 1] = '*.' .. ext:gsub('%a', function(c) return '[' .. c .. c:upper() .. ']' end)
+      local kind = require('config.media.preview').kind('file.' .. ext)
+      if extensions == images or require('config.media.preview').available(kind) then
+        patterns[#patterns + 1] = '*.' .. ext:gsub('%a', function(c) return '[' .. c .. c:upper() .. ']' end)
+      end
     end
   end
   if vim.g.neovide_native_image then add(images) end

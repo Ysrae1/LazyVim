@@ -1,3 +1,4 @@
+local function T(text) return require("config.platform.locale").t(text) end
 -- Jupyter Book project builds are independent from .ipynb saved-output viewing.
 local M = {}
 local uv = vim.uv or vim.loop
@@ -38,8 +39,8 @@ local function new_project(root)
   vim.bo[buf].modifiable = false
   local project = { root = root, log_buf = buf, status = "idle", generation = 0, streams = {} }
   projects[root] = project
-  vim.keymap.set("n", "q", "<Cmd>close<CR>", { buffer = buf, silent = true, desc = "关闭构建日志" })
-  vim.keymap.set("n", "<C-c>", function() M.cancel(root) end, { buffer = buf, desc = "取消此项目构建" })
+  vim.keymap.set("n", "q", "<Cmd>close<CR>", { buffer = buf, silent = true, desc = T("Close Build Log") })
+  vim.keymap.set("n", "<C-c>", function() M.cancel(root) end, { buffer = buf, desc = T("Cancel This Project's Build") })
   return project
 end
 
@@ -63,16 +64,16 @@ end
 
 function M.cancel(root)
   local project = projects[root or latest]
-  if not project or not project.process then notify("当前没有本模块启动的构建。"); return false end
+  if not project or not project.process then notify(T("No build started by Glow is currently running.")); return false end
   project.cancelled = true
-  log(project, "\n正在取消构建（向本次构建进程发送终止信号）…")
+  log(project, T("\nCancelling build (sending a termination signal to this build process)…"))
   project.process:kill(15)
   return true
 end
 
 function M.log(root)
   local project = projects[root or latest]
-  if not project or not vim.api.nvim_buf_is_valid(project.log_buf) then notify("尚无构建日志。"); return false end
+  if not project or not vim.api.nvim_buf_is_valid(project.log_buf) then notify(T("No build log is available yet.")); return false end
   vim.cmd("botright 12split")
   vim.api.nvim_win_set_buf(0, project.log_buf)
   vim.wo.wrap, vim.wo.number, vim.wo.relativenumber = false, false, false
@@ -84,7 +85,7 @@ local function show(project)
   if not project.pending_preview then return end
   if not vim.api.nvim_tabpage_is_valid(project.origin_tab) or not vim.api.nvim_win_is_valid(project.origin_win) then
     project.pending_preview = false
-    log(project, "原窗口已关闭；保留站点产物，没有创建预览。")
+    log(project, T("The original window was closed. Build files were kept; no preview was opened."))
     return
   end
   if vim.api.nvim_get_current_tabpage() ~= project.origin_tab then return end
@@ -99,8 +100,8 @@ local function show(project)
   local opened, value = pcall(require("config.media.preview").open, project.html, view_opts)
   project.preview_open = opened and value ~= false
   if not project.preview_open then
-    log(project, "HTML 已生成，打开原生网页预览失败：" .. tostring(value))
-    notify("构建成功，内嵌预览未能打开；产物为 " .. project.html, vim.log.levels.WARN)
+    log(project, T("HTML was generated, but native web preview could not be opened: ") .. tostring(value))
+    notify(T("Build succeeded, but embedded preview could not be opened. Output: ") .. project.html, vim.log.levels.WARN)
   end
 end
 
@@ -108,14 +109,14 @@ function M.open(path, opts)
   opts = opts or {}
   M.setup()
   local root, config = M.find_root(path)
-  if not root then notify("未找到 Jupyter Book 项目；请指定含 _config.yml 或 myst.yml 的目录。", vim.log.levels.WARN); return false end
+  if not root then notify(T("No Jupyter Book project was found. Select a folder containing _config.yml or myst.yml."), vim.log.levels.WARN); return false end
   local project = projects[root]
-  if project and project.process then notify("此项目正在构建；使用 :GlowBookLog 查看，:GlowBookCancel 取消。", vim.log.levels.WARN); return false end
+  if project and project.process then notify(T("This project is building. Use :GlowBookLog to view progress or :GlowBookCancel to cancel."), vim.log.levels.WARN); return false end
   local modern = vim.fs.basename(config):match("^myst%.") ~= nil
   -- opts.builder is an argv prefix for a chosen environment, never shell source.
   local command = vim.deepcopy(opts.builder or (modern and { "jupyter", "book" } or { "jupyter-book" }))
   if type(command) ~= "table" or type(command[1]) ~= "string" or vim.fn.executable(command[1]) ~= 1 then
-    notify("找不到 Jupyter Book 命令。请先在所需环境安装 Jupyter Book，并让 Neovim 的 PATH 可访问它；本模块不会安装或升级环境。", vim.log.levels.ERROR)
+    notify(T("Jupyter Book was not found. Install it in your chosen environment and make it available on Neovim's PATH. This command does not install or update the environment."), vim.log.levels.ERROR)
     return false
   end
   command[#command + 1] = "build"
@@ -126,8 +127,8 @@ function M.open(path, opts)
   latest, project.generation = root, project.generation + 1
   local generation = project.generation
   project.cancelled, project.status, project.streams = false, "building", {}
-  log(project, "\n开始构建：" .. root .. "\n命令参数：" .. vim.inspect(command))
-  notify("开始构建 " .. vim.fs.basename(root) .. "；:GlowBookLog 查看日志。")
+  log(project, T("\nStarting build: ") .. root .. T("\nCommand arguments: ") .. vim.inspect(command))
+  notify(T("Building ") .. vim.fs.basename(root) .. T("; see :GlowBookLog for progress."))
   local function output(name)
     return function(err, data)
       vim.schedule(function()
@@ -145,22 +146,22 @@ function M.open(path, opts)
       project.streams = {}
       if project.cancelled then
         project.status = "cancelled"
-        log(project, "构建已取消；未刷新站点。")
-        notify("构建已取消。")
+        log(project, T("Build cancelled; the site was not refreshed."))
+        notify(T("Build cancelled."))
       elseif result.code ~= 0 then
         project.status = "failed"
-        log(project, ("构建失败：退出码 %s，信号 %s。"):format(result.code, result.signal))
-        notify("构建失败；:GlowBookLog 查看完整反馈。", vim.log.levels.ERROR)
+        log(project, (T("Build failed: exit code %s, signal %s.")):format(result.code, result.signal))
+        notify(T("Build failed. See :GlowBookLog for full details."), vim.log.levels.ERROR)
       else
         local html = artifact(root)
         if not html then
           project.status = "failed"
-          log(project, "构建命令成功，但未找到 _build/html/index.html、_build/site/index.html 或 _build/index.html。")
-          notify("没有找到 HTML 站点产物；:GlowBookLog 查看反馈。", vim.log.levels.ERROR)
+          log(project, T("The build command succeeded, but _build/html/index.html, _build/site/index.html and _build/index.html were not found."))
+          notify(T("No HTML site output was found. See :GlowBookLog for details."), vim.log.levels.ERROR)
           return
         end
         project.status, project.html = "ready", html
-        log(project, "构建成功：" .. html)
+        log(project, T("Build succeeded: ") .. html)
         local preview = require("config.media.preview")
         if project.preview_open then
           preview.refresh_source(html)
@@ -169,19 +170,19 @@ function M.open(path, opts)
           show(project)
         end
         if project.pending_preview then
-          notify("构建成功；返回原标签页时打开站点预览。")
+          notify(T("Build succeeded. The site preview will open when you return to the original tab."))
         elseif project.preview_open then
-          notify("构建成功，站点预览已刷新。")
+          notify(T("Build succeeded; the site preview was refreshed."))
         else
-          notify("构建成功；HTML 产物已保留。")
+          notify(T("Build succeeded; the HTML output was kept."))
         end
       end
     end)
   end)
   if not ok then
     project.status = "failed"
-    log(project, "无法启动构建：" .. tostring(process))
-    notify("无法启动构建；:GlowBookLog 查看原因。", vim.log.levels.ERROR)
+    log(project, T("Unable to start build: ") .. tostring(process))
+    notify(T("Unable to start build. See :GlowBookLog for details."), vim.log.levels.ERROR)
     return false
   end
   project.process = process
@@ -196,10 +197,10 @@ end
 function M.setup()
   if configured then return end
   configured = true
-  vim.api.nvim_create_user_command("GlowBook", function(args) M.open(args.args ~= "" and args.args or nil) end,
-    { nargs = "?", complete = "dir", desc = "构建 Jupyter Book 项目并预览 HTML 站点" })
-  vim.api.nvim_create_user_command("GlowBookLog", function() M.log() end, { desc = "查看最近一次 Jupyter Book 构建日志" })
-  vim.api.nvim_create_user_command("GlowBookCancel", function() M.cancel() end, { desc = "取消本模块启动的 Jupyter Book 构建" })
+  require("config.platform.locale").command("GlowBook", function(args) M.open(args.args ~= "" and args.args or nil) end,
+    { nargs = "?", complete = "dir", desc = T("Build Jupyter Book and Preview HTML Site") })
+  require("config.platform.locale").command("GlowBookLog", function() M.log() end, { desc = T("View Latest Jupyter Book Build Log") })
+  require("config.platform.locale").command("GlowBookCancel", function() M.cancel() end, { desc = T("Cancel Jupyter Book Build Started by Glow") })
   local group = vim.api.nvim_create_augroup("GlowBook", { clear = true })
   vim.api.nvim_create_autocmd({ "TabEnter", "WinClosed" }, { group = group, callback = function()
     for _, project in pairs(projects) do show(project) end

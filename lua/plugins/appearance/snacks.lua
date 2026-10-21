@@ -101,8 +101,14 @@ return {
 ╚═╝  ╚═══╝╚══════╝ ╚═════╝   ╚═══╝  ╚═╝╚═╝     ╚═╝]],
         },
         formats = {
+          desc = function(item) return { require("config.platform.locale").t(item.desc), hl = "desc" } end,
+          title = function(item)
+            local locale = require("config.platform.locale")
+            local title = item.title == "Keymaps" and locale.current() == "zh" and locale.t("Dashboard Shortcuts") or locale.t(item.title)
+            return { title, hl = "title" }
+          end,
           icon = function(item)
-            return { item.icon, width = 2, hl = "icon" }
+            return { require("config.platform.locale").t(item.icon), width = 2, hl = "icon" }
           end,
           footer = { "%s", align = "center" },
           header = { "%s", align = "center" },
@@ -139,7 +145,7 @@ return {
           { icon = " ", title = "Keymaps", section = "keys", indent = 2, padding = 1, pane = 1 },
           { icon = " ", title = "Recent Files", section = "recent_files", indent = 2, padding = 1, pane = 1 },
           { icon = " ", title = "Projects", section = "projects", indent = 2, padding = 1, pane = 1 },
-          { section = "startup" },
+          function() return require("config.appearance.dashboard_locale").startup() end,
         },
       },
 

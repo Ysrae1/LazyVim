@@ -4,6 +4,7 @@
 
 ---@type ChadrcConfig
 local M = {}
+require("config.integrations.github").setup()
 
 M.base46 = {
   theme = "ayu_dark",
@@ -79,24 +80,7 @@ M.ui = {
       end,
 
       githubprofile = function()
-        local btn = require("nvchad.tabufline.utils").btn
-
-        vim.cmd([[
-  function! TbOpenGitHubProfile(a,b,c,d)
-      if has('macunix')
-  
-  silent !open 'https://github.com/Ysrae1' > /dev/null 2>&1
-      elseif has('win32') || has('win64')
-          silent !start https://github.com/Ysrae1
-      else
-          silent !xdg-open 'https://github.com/Ysrae1' > /dev/null 2>&1
-      endif
-  endfunction
-  ]])
-
-        local open_profiles = btn("  Ysrae1 ", "TabCloseBtn", "OpenGitHubProfile")
-
-        return open_profiles
+        return require("config.integrations.github").badge()
       end,
     },
     bufwidth = 21,

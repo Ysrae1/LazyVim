@@ -3,7 +3,7 @@ local M = {}
 function M.render(width, system)
   if width <= 0 then return "" end
   local icon = ({ Darwin = "", Linux = "", Windows_NT = "" })[system]
-  local title = " " .. (icon and icon .. " " or "") .. "File Explorer"
+  local title = " " .. (icon and icon .. " " or "") .. require("config.platform.locale").t("File Explorer")
   local text = ""
   -- Clip by screen cells, preserving the left anchor and complete UTF-8 glyphs.
   for index = 0, vim.fn.strchars(title) - 1 do

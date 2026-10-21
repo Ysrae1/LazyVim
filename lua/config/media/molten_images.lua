@@ -1,3 +1,4 @@
+local function T(text) return require("config.platform.locale").t(text) end
 -- A scoped adapter for Molten's ImageNvimCanvas, not an image.nvim replacement.
 -- File headers supply immediate padding sizes. Decoding and pixels stay in the
 -- native asynchronous Neovide image worker; never request data back from the GUI.
@@ -44,7 +45,7 @@ local function warn(image, message)
   end
   image.error = message
   vim.schedule(function()
-    vim.notify("Notebook 图像：" .. message, vim.log.levels.WARN, { title = "Neovide Glow" })
+    vim.notify(T("Notebook image: ") .. message, vim.log.levels.WARN, { title = "Neovide Glow" })
   end)
 end
 
@@ -162,7 +163,7 @@ local function padding(image)
       and image.padding_deferred == image.deferred then return end
   local lines = {}
   for _ = 1, height do lines[#lines + 1] = { { "", "Normal" } } end
-  if image.deferred and lines[1] then lines[1] = { { "图像暂缓显示；滚动到输出处重试", "Comment" } } end
+  if image.deferred and lines[1] then lines[1] = { { T("Image display deferred; scroll to the output to retry"), "Comment" } } end
   image.padding = vim.api.nvim_buf_set_extmark(image.buffer, namespace, row, 0, {
     id = image.padding, virt_lines = lines, strict = false,
     right_gravity = false, priority = 210,
@@ -227,7 +228,7 @@ local function sync_inline(output)
       shape[#shape + 1] = { size.width, size.height, size.render_height, image.deferred == true }
       for row = 1, size.height do
         lines[#lines + 1] = image.deferred and row == 1
-          and { { '图像暂缓显示；滚动到输出处重试', 'Comment' } } or { { '', 'Normal' } }
+          and { { T("Image display deferred; scroll to the output to retry"), 'Comment' } } or { { '', 'Normal' } }
       end
     end
   end
@@ -361,7 +362,7 @@ local function capacity_notice()
   if capacity_notified then return end
   capacity_notified = true
   vim.schedule(function()
-    vim.notify("Notebook 同时显示最多 6 幅图像，为图片／Yazi 共留 2 个交互预览槽；暂缓的输出已保留，滚动到输出处会重试。",
+    vim.notify(T("Notebook shows up to 6 images at once, leaving 2 shared slots for image and Yazi previews. Deferred outputs are kept and will retry when scrolled into view."),
       vim.log.levels.INFO, { title = "Neovide Glow" })
   end)
 end
@@ -405,7 +406,7 @@ function M.refresh()
         else active[id] = image end
         if id and not rpc("load", id, image.path) then
           close(image)
-          warn(image, "无法连接原生图像渲染器")
+          warn(image, T("Unable to connect to the native image renderer"))
         end
       end
       image.deferred = image.retry_after ~= nil and not image.native_id or nil

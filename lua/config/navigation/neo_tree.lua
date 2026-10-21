@@ -1,6 +1,32 @@
 local M = {}
 local cache = {}
 
+-- A Windows UNC volume ends at \\server\share. The frozen Neo-tree version
+-- otherwise walks above the share and creates a non-directory parent without
+-- children (file-items.lua:308/311). Keep ordinary drive/POSIX handling intact.
+function M.setup_paths()
+    local utils = require("neo-tree.utils")
+    if not utils.is_windows or utils._glow_unc_root then
+        return
+    end
+    local original = utils.abspath_prefix
+    utils.abspath_prefix = function(path)
+        local windows = utils.windowize_path(path)
+        local prefix, rest = [[\\]], windows:sub(3)
+        if windows:sub(1, 8):upper() == [[\\?\UNC\]] then
+            prefix, rest = windows:sub(1, 8), windows:sub(9)
+        elseif windows:sub(1, 2) ~= [[\\]] then
+            return original(path)
+        end
+        local server, share = rest:match([[^([^\]+)\([^\]+)]])
+        if server and share and server ~= "?" and server ~= "." then
+            return prefix .. server .. "\\" .. share .. "\\"
+        end
+        return original(path)
+    end
+    utils._glow_unc_root = original
+end
+
 -- Light 玻璃的实际底色不一定是白色；向主题的弱化文字色收敛，避免末尾字变白发光。
 -- 只影响侧栏末尾三个字符，不改主题色板；Dark 保留原先向黑色渐隐的效果。
 local function light_fade_target()
@@ -25,6 +51,8 @@ function M.fade_color(color, amount, light, target)
 end
 
 function M.setup()
+    M.setup_paths()
+    require("config.navigation.neo_tree_locale").setup()
     local highlights = require("neo-tree.ui.highlights")
     highlights.get_faded_highlight_group = function(name, amount)
         assert(type(name) == "string", "Neo-tree fade requires a highlight name")

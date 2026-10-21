@@ -1,7 +1,7 @@
 -- Background-only transparency. Neovide keeps foreground text fully opaque.
 local M = {}
 local configured, queued = false, false
-local material_blend = 80 -- Every glass component uses 20% background opacity.
+local material_blend = 80 -- Windows light takes its denser platform policy at apply time.
 -- Base surfaces precede aliases, so links which already inherit the requested
 -- blend stay links. Syntax, selections and solid capsule bodies stay opaque.
 local popup_surfaces = {
@@ -312,18 +312,20 @@ local function split_separators()
 end
 
 local function dashboard_material()
-  -- Dashboard embeds its own terminal float, separate from SnacksNormal. Keep
-  -- this narrow rule away from ordinary terminals and non-Glass Neovide.
+  -- Dashboard's Matrix must use the editor material, not the sidebar blend.
   local name = "SnacksDashboardTerminal"
   local definition = vim.api.nvim_get_hl(0, { name = name, create = false })
-  if vim.g.neovide_liquid_glass == true then
+  if vim.g.neovide then
     if vim.fn.hlexists(name) == 0 then
       return
     end
     if not dashboard_terminal or not vim.deep_equal(definition, dashboard_terminal.applied) then
       dashboard_terminal = { original = definition }
     end
-    apply(name, material_blend)
+    local normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
+    local policy = require("config.appearance.popup_materials").resolve("matrix_dashboard", normal, normal.bg)
+    local attrs = vim.tbl_extend("force", normal, { blend = policy.blend })
+    vim.api.nvim_set_hl(0, name, attrs)
     dashboard_terminal.applied = vim.api.nvim_get_hl(0, { name = name, create = false })
   elseif dashboard_terminal then
     if vim.deep_equal(definition, dashboard_terminal.applied) then
@@ -416,16 +418,36 @@ function M.apply()
     require("config.appearance.popup_text").apply()
     return
   end
+  local windows = require("config.platform.windows_appearance")
+  windows.setup()
+  material_blend = windows.material_blend(80)
   for _, name in ipairs(surfaces) do
     apply(name, material_blend)
   end
   M.apply_popup_material()
   M.apply_notifier_material()
   M.apply_picker_material()
-  -- 新的底栏试用仅接入原生 Liquid Glass，其他前端保持既有行为。
-  if vim.g.neovide_liquid_glass == true then
-    for _, name in ipairs(bottom_bar) do
-      apply(name, material_blend)
+  local windows_gui = vim.fn.has("win32") == 1
+  if vim.g.neovide_liquid_glass == true or windows_gui then
+    if windows_gui then
+      -- Windows has no native Liquid Glass flag. Only the bar's outside cells
+      -- follow Normal's existing RGB, so Neovide uses the editor's own opacity.
+      -- Do not alter shared StatusLineNC/TabLine aliases or capsule accents.
+      local normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
+      if normal.bg then
+        for _, name in ipairs(bottom_bar) do
+          if vim.fn.hlexists(name) == 1 then
+            local attrs = vim.api.nvim_get_hl(0, { name = name, link = false })
+            attrs.bg, attrs.blend = normal.bg, 0
+            vim.api.nvim_set_hl(0, name, attrs)
+            resolved_links[name] = nil
+          end
+        end
+      end
+    else
+      for _, name in ipairs(bottom_bar) do
+        apply(name, material_blend)
+      end
     end
     -- StatusLine 的 blend 会参与组合高亮；胶囊内部必须显式覆盖为 0，不能只省略。
     for _, name in ipairs(solid_capsules) do
@@ -437,8 +459,11 @@ function M.apply()
         end
       end
     end
-    -- 新构建支持底部不足一格的像素余量独立透明；不改变编辑区 Normal 的透明度。
-    vim.g.neovide_bottom_margin_opacity = (100 - material_blend) / 100
+    -- Windows leaves fractional bottom pixels on the same editor-opacity path.
+    -- Keep the existing macOS Liquid Glass footer policy independent.
+    if not windows_gui then
+      vim.g.neovide_bottom_margin_opacity = (100 - material_blend) / 100
+    end
   end
   for _, name in ipairs(rows) do
     -- 光标行独立调节，后续材质刷新也不能把用户设置覆盖回统一面板透明度。
