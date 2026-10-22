@@ -132,6 +132,12 @@ return {
 
           {
             section = "terminal",
+            -- Optional decoration: terminal launches may skip it, and a
+            -- missing animation tool must not produce a startup job error.
+            enabled = function()
+              return vim.env.NVIM_SKIP_MATRIX_INTRO ~= "1"
+                and vim.fn.executable(vim.g.neovide and "cmatrix-gm" or "cmatrix") == 1
+            end,
             -- cmd = "cmatrix -a -b -u 1",
             -- Longer virtual streams leave room for the fading tail in this
             -- six-row GUI panel; standalone rain keeps its own defaults.
