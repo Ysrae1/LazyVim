@@ -31,7 +31,48 @@ function M.click(_, clicks, button, modifiers)
   })
 end
 
-local dashboard_mouse_desc = "Drag dashboard top blank row"
+local dashboard_mouse_desc = "Drag dashboard upper blank area"
+
+local function header_top(buf, win)
+  local namespace = vim.api.nvim_get_namespaces().snacks_dashboard
+  if not namespace then return 2 end -- old first-row behavior without a header
+  local top
+  for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(buf, namespace, 0, -1, { details = true })) do
+    if mark[4].hl_group == "SnacksDashboardHeader" then
+      local position = vim.fn.screenpos(win, mark[2] + 1, mark[3] + 1)
+      if position.row > 0 then top = math.min(top or position.row, position.row) end
+    end
+  end
+  return top or 2
+end
+
+function M.dashboard_click(buf)
+  local mouse = vim.fn.getmousepos()
+  local win = mouse.winid
+  if not vim.g.neovide_window_drag_supported or vim.o.showtabline ~= 0
+    or mouse.screenrow < 1 or mouse.screencol < 1
+    or not vim.api.nvim_win_is_valid(win) or vim.api.nvim_win_get_buf(win) ~= buf
+    or vim.api.nvim_win_get_config(win).relative ~= ""
+    or vim.bo[buf].filetype ~= "snacks_dashboard" then return false end
+  local extended = (tonumber(vim.g.neovide_window_drag_version) or 1) >= 2
+  local limit = extended and header_top(buf, win) or 2
+  if mouse.screenrow >= limit then return false end
+  -- A whole empty painted row is required, so header text, other panes,
+  -- floating components and the spaces inside their labels stay interactive.
+  for col = 1, vim.o.columns do
+    if vim.fn.screenstring(mouse.screenrow, col) ~= " " then return false end
+  end
+  if not extended then
+    _G.GlowWindowDrag(0, 1, "l", "")
+    return true
+  end
+  local channel = vim.g.neovide_channel_id
+  if type(channel) ~= "number" or channel <= 0 then return false end
+  vim.rpcnotify(channel, "neovide.window.start_drag", {
+    version = 2, surface = "dashboard", row = mouse.screenrow - 1, column = mouse.screencol - 1,
+  })
+  return true
+end
 
 function M.attach_dashboard(buf)
   if not vim.g.neovide_window_drag_supported or not vim.api.nvim_buf_is_valid(buf)
@@ -43,16 +84,7 @@ function M.attach_dashboard(buf)
   -- within a custom button. Never replace a user's buffer or global mapping.
   if next(existing) then return end
   vim.keymap.set("n", "<LeftMouse>", function()
-    local mouse = vim.fn.getmousepos()
-    local win = mouse.winid
-    if vim.g.neovide_window_drag_supported and vim.o.showtabline == 0
-      and mouse.screenrow == 1 and mouse.screencol > 0
-      and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == buf
-      and vim.bo[buf].filetype == "snacks_dashboard"
-      and vim.fn.screenstring(1, mouse.screencol) == " " then
-      _G.GlowWindowDrag(0, 1, "l", "")
-      return
-    end
+    if M.dashboard_click(buf) then return end
     -- Replaying the native key without mappings preserves ordinary clicks,
     -- selection and dashboard content without adding a visible tabline.
     local key = vim.api.nvim_replace_termcodes("<LeftMouse>", true, false, true)
