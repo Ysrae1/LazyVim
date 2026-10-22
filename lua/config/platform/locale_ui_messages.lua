@@ -1,5 +1,10 @@
 -- Product UI only. File names, source text, server output and command identifiers stay unchanged.
 return {
+  { "Choose Terminal Shell", "选择终端" },
+  { "Could not save terminal preference.", "无法保存终端选择。" },
+  { "No supported terminal shell is installed.", "未找到可用终端。" },
+  { "Windows PowerShell", "Windows PowerShell" },
+  { "Command Prompt", "命令提示符" },
   { "Find Files", "查找文件" },
   { "Results", "结果" },
   { "Grep Preview", "文本搜索预览" },

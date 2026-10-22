@@ -1,5 +1,5 @@
--- Both ToggleTerm and Snacks inherit this interpreter. Keep interactive
--- profiles enabled; shellcmdflag only controls Neovim's command jobs.
+-- Keep command jobs on PowerShell with compatible encoding/quoting options.
+-- Interactive terminal selection is managed separately by terminal_shell.lua.
 local M = {}
 
 function M.setup()
@@ -39,12 +39,6 @@ function M.setup()
     vim.o.shellcmdflag = flags:sub(1, first - 1)
       .. "Remove-Item -LiteralPath Alias:tee -Force -ErrorAction SilentlyContinue;"
       .. flags:sub(last + 1)
-  end
-  -- Hot-install only the shell selection for future ToggleTerm jobs. Existing
-  -- terminal processes and the plugin's window/style settings stay untouched.
-  local toggleterm = package.loaded["toggleterm.config"]
-  if toggleterm and type(toggleterm.get) == "function" then
-    toggleterm.get().shell = vim.o.shell
   end
   return vim.o.shell
 end

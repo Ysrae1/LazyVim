@@ -8,7 +8,8 @@ return {
       require("toggleterm").setup({
         -- 在这里配置 toggleterm 的选项
         size = 20,
-        open_mapping = [[<c-t>]],
+        -- Selection must finish before ToggleTerm starts its process.
+        open_mapping = false,
         on_open = function(term)
           -- 当终端打开时运行，设置终端的工作目录
           local current_dir = vim.fn.expand("%:p:h")
@@ -26,7 +27,7 @@ return {
         persist_size = true,
         direction = "float", -- 或 'horizontal' | 'vertical' | 'tab'
         close_on_exit = true,
-        shell = vim.o.shell, -- 使用 Vim 的默认 shell
+        shell = vim.o.shell, -- Non-interactive fallback; Ctrl+T sets the selected shell.
         autochdir = true,
         float_opts = {
           -- The border key is *almost* the same as 'nvim_open_win'
@@ -43,6 +44,9 @@ return {
           title_pos = "center",
         },
       })
+      vim.keymap.set({ "n", "i", "t" }, "<c-t>", function()
+        require("config.platform.terminal_shell").toggleterm()
+      end, { silent = true, desc = "Toggle Terminal" })
     end,
   },
 }

@@ -20,6 +20,8 @@ function M.toggle_diagnostics()
   vim.g.diagnostics_active = enabled
 end
 
+require("config.platform.terminal_shell").setup()
+
 local map = vim.keymap.set
 
 local del = vim.keymap.del
