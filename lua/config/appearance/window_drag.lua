@@ -32,9 +32,16 @@ function M.click(_, clicks, button, modifiers)
 end
 
 function M.attach()
-  if vim.g.neovide_window_drag_supported and vim.o.tabline == original then
+  if not vim.g.neovide_window_drag_supported then return end
+  if vim.o.tabline == original then
     -- A later custom tabline belongs to its owner; never wrap it implicitly.
     vim.o.tabline = wrapped
+  end
+  if vim.o.tabline == wrapped and vim.o.showtabline ~= 2 then
+    -- Snacks hides the tabline on its startup dashboard. Frameless windows
+    -- still need this row: with no labels, NvChad's fill starts at the left
+    -- edge and leaves its right-hand controls outside the drag callback.
+    vim.o.showtabline = 2
   end
 end
 
@@ -46,8 +53,13 @@ function M.setup()
     group = group,
     pattern = { "*" },
     callback = function(event)
-      if event.event == "VimEnter" or event.match == "tabline" then M.attach() end
+      if event.event == "VimEnter" or event.match == "tabline" or event.match == "showtabline" then
+        M.attach()
+      end
     end,
+  })
+  vim.api.nvim_create_autocmd("FileType", {
+    group = group, pattern = "snacks_dashboard", callback = M.attach,
   })
   vim.api.nvim_create_autocmd("User", {
     group = group, pattern = "NeovideWindowDragReady", callback = M.attach,
