@@ -262,6 +262,7 @@ return {
               ["."] = "set_root",
               ["H"] = "toggle_hidden",
               ["/"] = "fuzzy_finder",
+              ["g/"] = { "goto_path", desc = "Go to path" },
               ["D"] = "fuzzy_finder_directory",
               ["#"] = "fuzzy_sorter", -- fuzzy sorting using the fzy algorithm
               -- ["D"] = "fuzzy_sorter_directory",
@@ -288,7 +289,9 @@ return {
             },
           },
 
-          commands = {}, -- Add a custom command or override a global one using the same function name
+          commands = {
+            goto_path = function(state) require("config.navigation.neo_tree_path").goto_path(state) end,
+          },
         },
         buffers = {
           follow_current_file = {

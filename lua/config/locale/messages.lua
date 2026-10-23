@@ -249,7 +249,7 @@ return {
   { "plugins in", "个插件，耗时" },
   { "milliseconds", "毫秒" },
   { "Dashboard Shortcuts", "快捷功能" },
-  { "Buffer Explorer", "buffer 浏览器" },
+  { "Buffer Explorer", "Buffer 浏览器" },
   { "Git Explorer", "Git 浏览器" },
   { "Explorer NeoTree (Root Dir)", "NeoTree 文件浏览（根目录）" },
   { "Explorer NeoTree (cwd)", "NeoTree 文件浏览（当前目录）" },

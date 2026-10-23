@@ -170,7 +170,7 @@ local function setup_snacks()
       return result
     end
     picker.update_titles = function(self, ...)
-      local active = require("config.platform.locale_ui")
+      local active = require("config.locale.ui")
       active.prepare_picker_titles(self)
       local result = vim.F.pack_len(update_titles(self, ...))
       active.finish_picker_titles(self)
@@ -194,7 +194,7 @@ local function setup_snacks()
     end
     win._glow_caption_locale = win._glow_caption_locale or setmetatable({}, { __mode = "k" })
     win.win_opts = function(self, ...)
-      return require("config.platform.locale_ui").snacks_caption_opts(self, win_opts(self, ...))
+      return require("config.locale.ui").snacks_caption_opts(self, win_opts(self, ...))
     end
     win._glow_caption_locale_dispatch = true
   end
@@ -251,10 +251,10 @@ local function setup_telescope()
   local new = pickers._Picker.new
   pickers._Picker.new = function(self, opts)
     local result = new(self, opts)
-    require("config.platform.locale_ui").prepare_telescope_titles(result)
+    require("config.locale.ui").prepare_telescope_titles(result)
     local window_options = result.get_window_options
     result.get_window_options = function(this, ...)
-      require("config.platform.locale_ui").prepare_telescope_titles(this)
+      require("config.locale.ui").prepare_telescope_titles(this)
       return window_options(this, ...)
     end
     return result

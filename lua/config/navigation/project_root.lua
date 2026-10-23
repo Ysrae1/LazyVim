@@ -161,6 +161,10 @@ function M.sync()
 
   require("neo-tree").ensure_config()
   local state = require("neo-tree.sources.manager").get_state("filesystem", tab)
+  -- Keep an explicit path jump while browsing the tree. Returning to an editor
+  -- file resumes the existing automatic project/file follow behavior.
+  if tree_buffer(vim.api.nvim_get_current_buf()) and state._glow_manual_path then return end
+  state._glow_manual_path = nil
   local root = M.resolve(file)
   if not require("neo-tree.ui.renderer").window_exists(state) then
     state.path = root

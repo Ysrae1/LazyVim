@@ -146,7 +146,7 @@ function M.setup()
   if not view._glow_locale_dispatch then
     local base = original(view, "item", "_glow_locale_item", "original")
     view.item = function(node, opts)
-      return require("config.platform.which_key_locale").item(base, node, opts)
+      return require("config.locale.which_key").item(base, node, opts)
     end
     view._glow_locale_item, view._glow_locale_dispatch = view.item, true
   end
@@ -157,7 +157,7 @@ function M.setup()
     local base = original(text, "append", "_glow_locale_append", "append")
     text.append = function(self, value, opts)
       local caller = debug.getinfo(2, "S")
-      return require("config.platform.which_key_locale").append(base, self, value, opts, caller and caller.source)
+      return require("config.locale.which_key").append(base, self, value, opts, caller and caller.source)
     end
     text._glow_locale_append, text._glow_locale_dispatch = text.append, true
   end

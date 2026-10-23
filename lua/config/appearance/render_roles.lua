@@ -23,13 +23,21 @@ function M.groups()
   if vim.g.neovide_reference_outline_supported and references.enabled and references.outline then
     assign({ "LspReferenceText", "LspReferenceRead", "LspReferenceWrite" }, "reference_outline")
   end
+  if vim.g.neovide_centered_caption_supported then
+    for _, name in ipairs({ "GlowPickerPromptTitle", "GlowPickerPreviewTitle", "GlowPickerResultsTitle",
+      "TelescopePromptTitle", "TelescopePreviewTitle", "TelescopeResultsTitle" }) do
+      groups[name] = { "centered_caption" }
+      -- popups.lua derives chunk-only names without changing the theme group.
+      groups["GlowPopupCaption_" .. vim.fn.sha256(name):sub(1, 20)] = { "centered_caption" }
+    end
+  end
   return groups
 end
 
 function M.setup()
   -- 用户配置可能早于原生能力声明加载；就绪后按当前开关重新声明。
   local group = vim.api.nvim_create_augroup("GlowHighlightRoles", { clear = true })
-  if not vim.g.neovide_reference_outline_supported then
+  if not vim.g.neovide_reference_outline_supported or not vim.g.neovide_centered_caption_supported then
     vim.api.nvim_create_autocmd("User", {
       group = group, pattern = "NeovideHighlightRolesReady", once = true, callback = function() M.setup() end,
     })

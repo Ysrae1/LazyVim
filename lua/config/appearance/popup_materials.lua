@@ -12,6 +12,7 @@ local M = {}
 M.config = {
   default = { mode = "editor" }, -- 无法可靠识别的普通浮窗。
   notebook_output = { mode = "editor" }, -- Molten / 保存输出的可滚动浮窗。
+  avante = { mode = "editor" }, -- Avante 整个侧栏（结果、选区、输入、边框与间隙）。
   lazy = { mode = "editor" }, -- 插件管理器。
   mason = { mode = "editor" }, -- 外部工具管理器。
   snacks_picker = { mode = "editor" }, -- 选择器通用/容器窗口。
@@ -46,7 +47,19 @@ M.config = {
   matrix_dashboard = { mode = "editor" }, -- Dashboard 内嵌 Matrix 终端。
 }
 
--- 仅管理真实浮窗；普通 split、主编辑区、侧栏与 Dashboard 主体不受影响。
+-- 通常只管理真实浮窗；Avante 是唯一显式受控的普通 split 适配。
+-- 不根据相邻 editor 的 WinSeparator 映射判断所有权。
+local avante_filetypes = {
+  Avante = true, AvanteInput = true, AvanteSelectedCode = true,
+  AvanteSelectedFiles = true, AvanteTodos = true, AvantePromptInput = true, AvanteConfirm = true,
+}
+function M.is_avante(win, mapping)
+  return vim.w[win].glow_popup_profile == "avante"
+    or avante_filetypes[vim.bo[vim.api.nvim_win_get_buf(win)].filetype] == true
+    or mapping.Normal == "AvanteSidebarNormal" or mapping.Normal == "AvantePromptInput"
+    or mapping.NormalFloat == "AvantePromptInput"
+end
+
 -- 优先级：w:glow_popup_profile 显式指定 > 插件 winhighlight 角色 > filetype > LSP 标记/终端 > default。
 -- 插件把 LSP 内容转交 Noice/Snacks 时，按实际承载窗口分类，不能只凭 markdown 猜 hover。
 function M.classify(win, mapping)
@@ -54,6 +67,7 @@ function M.classify(win, mapping)
   if type(explicit) == "string" and M.config[explicit] then
     return explicit
   end
+  if M.is_avante(win, mapping) then return "avante" end
   local function has(pattern)
     for _, target in pairs(mapping) do
       if target:match(pattern) then
@@ -167,7 +181,11 @@ function M.resolve(profile, normal, popup)
       local opacity = tonumber(vim.g.neovide_normal_opacity) or 1
       blend = math.floor((1 - math.max(0, math.min(1, opacity))) * 100 + 0.5)
     end
-    blend = require("config.platform.windows_appearance").popup_blend(blend)
+    -- Avante splits inherit the actual editor material without the separate
+    -- Windows floating-popup cap; normal_opacity remains platform/user owned.
+    if profile ~= "avante" then
+      blend = require("config.platform.windows_appearance").popup_blend(blend)
+    end
     return { mode = mode, bg = normal.bg, blend = blend }
   end
   if mode == "opaque" then

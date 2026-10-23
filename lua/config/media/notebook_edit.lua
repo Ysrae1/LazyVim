@@ -116,7 +116,7 @@ function M.cell_labels(buf)
       -- Read only the FIRST NONEMPTY Molten status line, then stop; never search
       -- printed results. Skipping empty rows also accepts older saved layout.
       -- Resolve the product renderer's canonical status, independent of UI language.
-      local chrome = require("config.platform.notebook_chrome_locale")
+      local chrome = require("config.locale.notebook_chrome")
       local lines = chrome.canonical_lines(buf, molten_namespace, mark[1], mark[4].virt_lines)
       if chrome.status(lines) == "running" then
         running_rows[#running_rows + 1] = mark[2]
@@ -619,7 +619,7 @@ local function clear_cell_output(cell)
   local session = sessions[vim.api.nvim_get_current_buf()]
   if not session or not session.ready or cell.first > cell.last then return true end
   for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(session.buf, -1, { cell.first - 1, 0 }, { cell.last - 1, -1 }, { details = true })) do
-    local chrome = require("config.platform.notebook_chrome_locale")
+    local chrome = require("config.locale.notebook_chrome")
     local lines = chrome.canonical_lines(session.buf, mark[4].ns_id, mark[1], mark[4].virt_lines)
     local status = chrome.status(lines)
     if status == "running" or status == "pending" then

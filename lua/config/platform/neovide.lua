@@ -26,6 +26,7 @@ else
   vim.g.neovide_light_angle_degrees = 45
   vim.g.neovide_floating_corner_radius = 0.48
   vim.g.neovide_normal_opacity = 0.85
+  require("config.platform.macos_appearance").setup()
 end
 vim.g.neovide_light_radius = 10
 vim.g.neovide_floating_blur_amount_x = 24.0
@@ -38,6 +39,10 @@ vim.g.neovide_window_blurred = true
 require("config.platform.glass").setup()
 require("config.appearance.transparency").setup()
 require("config.appearance.render_roles").setup()
+require("config.appearance.float_shadows").setup({
+  notebook_output = vim.fn.has("macunix") == 1 and not windows,
+  matrix_intro = vim.fn.has("macunix") == 1 and not windows,
+})
 vim.g.neovide_theme = "auto"
 vim.g.neovide_remember_window_size = true
 vim.g.neovide_profiler = false
@@ -59,11 +64,6 @@ M.load_scale_factor = zoom.load_scale_factor
 M.save_scale_factor = zoom.save_scale_factor
 zoom.setup()
 
-require("config.media.image").setup()
-require("config.media.preview").setup()
-require("config.media.notebook").setup()
-require("config.media.notebook_edit").setup()
-require("config.media.book").setup()
-require("config.media.open").setup()
+require("config.media").setup()
 
 return M

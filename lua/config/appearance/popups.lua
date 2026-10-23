@@ -82,6 +82,25 @@ local function chrome(name)
     or name:match("^TabLine") or name:match("^Tb") or name:match("^BufferLine")
 end
 
+local avante_material_groups = {
+  "AvanteSidebarWinSeparator", "AvanteSidebarWinHorizontalSeparator",
+  "AvanteReversedTitle", "AvanteReversedSubtitle", "AvanteReversedThirdTitle",
+}
+local function avante_material(profiles, normal, popup, global)
+  local policy = profiles.resolve("avante", normal, popup)
+  -- Shared separator cells can be drawn by the neighbouring editor. Only
+  -- Avante-owned groups are global; all sidebar content uses its own namespace.
+  for _, name in ipairs(avante_material_groups) do
+    if vim.fn.hlexists(name) == 1 then
+      local attrs = vim.api.nvim_get_hl(0, { name = name, link = false })
+      attrs.bg, attrs.blend = policy.bg, policy.blend
+      if name:find("Separator", 1, true) then attrs.fg = policy.bg end
+      vim.api.nvim_set_hl(0, name, attrs)
+      global[name] = attrs
+    end
+  end
+end
+
 local function material(value, normal, popup, policy, base)
   value = vim.deepcopy(value)
   if base then
@@ -100,6 +119,10 @@ end
 local picker_caption_tokens = {
   GlowPickerPromptTitle = true, GlowPickerPreviewTitle = true, GlowPickerResultsTitle = true,
   TelescopePromptTitle = true, TelescopePreviewTitle = true, TelescopeResultsTitle = true,
+}
+local notebook_caption_tokens = {
+  GlowNotebookExpand = true, GlowNotebookExpandCap = true,
+  GlowNotebookExpandValue = true, GlowNotebookExpandValueCap = true,
 }
 
 -- Generic captions inherit the float material; semantic picker title capsules
@@ -353,6 +376,7 @@ function M.apply(windows)
   local popup = background(normal.bg, global)
   if not popup then return end
   local profiles = require("config.appearance.popup_materials")
+  avante_material(profiles, normal, popup, global)
   -- 内建 Pmenu 不在 nvim_list_wins 中；它的基础底材组使用同一个菜单配置。
   -- pumblend=0 保持前景原样，背景混合交给高亮 blend / Neovide。
   local completion = profiles.resolve("completion_menu", normal, popup)
@@ -367,9 +391,9 @@ function M.apply(windows)
 
   for _, win in ipairs(windows or vim.api.nvim_list_wins()) do
     local config = vim.api.nvim_win_get_config(win)
-    if config.relative ~= "" or config.external then
+    local mapping = mappings(vim.wo[win].winhighlight)
+    if config.relative ~= "" or config.external or profiles.is_avante(win, mapping) then
       local filetype = vim.bo[vim.api.nvim_win_get_buf(win)].filetype
-      local mapping = mappings(vim.wo[win].winhighlight)
       if is_backdrop(filetype, mapping) then
         -- 仅关闭明确标记的遮罩，不按尺寸、层级或是否可聚焦猜测工具窗口。
         pcall(vim.api.nvim_win_close, win, true)
@@ -447,13 +471,31 @@ function M.apply(windows)
             end
             values[name] = material(value, source_normal, popup, policy, true)
           end
+          if profile == "avante" then
+            -- These custom-colored cap exteriors are material, not semantic
+            -- selections; retain their explicit blend even in custom mode.
+            for _, name in ipairs(avante_material_groups) do
+              if global[name] then
+                values[name] = vim.deepcopy(global[name])
+                for mapped, target in pairs(mapping) do
+                  if target == name then values[mapped] = vim.deepcopy(global[name]) end
+                end
+              end
+            end
+          end
           for name, groups in pairs(caption_sources) do
-            local value, semantic = {}, false
+            local value, semantic, notebook = {}, false, false
             for _, group in ipairs(groups) do
               value = vim.tbl_extend("force", value, resolve(mapping[group] or group))
               semantic = semantic or picker_caption_tokens[group] or picker_caption_tokens[mapping[group]]
+              notebook = notebook or notebook_caption_tokens[group] or notebook_caption_tokens[mapping[group]]
             end
-            if semantic and value.bg ~= nil then
+            if notebook then
+              -- Notebook footer caps keep their transparent outside, while
+              -- their themed label/value backgrounds remain solid.
+              value.blend = value.bg ~= nil and 0 or nil
+              values[name] = value
+            elseif semantic and value.bg ~= nil then
               value.blend = 0
               values[name] = value
             else
@@ -474,6 +516,16 @@ function M.apply(windows)
         if vim.wo[win].winblend ~= 0 then vim.wo[win].winblend = 0 end
         vim.w[win].glow_popup_material = { source_namespace = source, namespace = namespace,
           profile = profile, mode = policy.mode, caption_sources = caption_sources }
+      end
+    else
+      local state = vim.w[win].glow_popup_material
+      if state and state.profile == "avante" then
+        -- A provider may reuse its split for an ordinary buffer. Release only
+        -- our namespace once both its filetype and owned mapping are gone.
+        if vim.api.nvim_get_hl_ns({ winid = win }) == state.namespace then
+          vim.api.nvim_win_set_hl_ns(win, state.source_namespace or 0)
+        end
+        vim.w[win].glow_popup_material = nil
       end
     end
   end

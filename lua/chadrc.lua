@@ -6,15 +6,22 @@
 local M = {}
 require("config.integrations.github").setup()
 
+local function platform_theme(name)
+  if vim.fn.has("win32") == 1 then
+    return require("config.platform.windows_themes").load(name)
+  end
+  return require("config.appearance.themes." .. name)
+end
+
 M.base46 = {
   theme = "ayu_dark",
   -- Neovide keeps its existing background; the terminal uses Ghostty's glass.
   transparency = not vim.g.neovide,
   theme_toggle = { "ayu_dark", "ayu_light" },
-  -- Light / Dark 配色统一保存在 lua/config/appearance/themes/，插件目录只提供基础主题。
+  -- Mac / Linux 使用 appearance/themes；Windows 优先读取用户独立主题。
   changed_themes = {
-    ayu_light = require("config.appearance.themes.ayu_light_customed"),
-    ayu_dark = require("config.appearance.themes.ayu_dark_customed"),
+    ayu_light = platform_theme("ayu_light_customed"),
+    ayu_dark = platform_theme("ayu_dark_customed"),
   },
   integrations = {
     "bufferline",

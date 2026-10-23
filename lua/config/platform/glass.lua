@@ -9,6 +9,11 @@ local function number(value, minimum, maximum)
   value = tonumber(value)
   return value and value == value and value >= minimum and value <= maximum and value or nil
 end
+local function refresh_popups()
+  if vim.fn.has("macunix") ~= 1 or vim.fn.has("win32") == 1 then return end
+  local popups = package.loaded["config.appearance.popups"]
+  if type(popups) == "table" and type(popups.apply) == "function" then popups.apply() end
+end
 function M.opacity(value)
   value = number(value, 0, 1)
   if not value then notify(T("Enter a background opacity from 0 to 1."), vim.log.levels.WARN); return false end
@@ -16,6 +21,7 @@ function M.opacity(value)
   -- readable even when the user chooses a fully transparent editor background.
   vim.g.neovide_normal_opacity = value
   vim.g.neovide_opacity = 1
+  refresh_popups()
   return true
 end
 function M.blur(value)
@@ -30,8 +36,14 @@ function M.reset()
   vim.g.neovide_liquid_glass = defaults.enabled
   vim.g.neovide_opacity = defaults.opacity
   vim.g.neovide_normal_opacity = defaults.normal
+  local macos = package.loaded["config.platform.macos_appearance"]
+  if vim.fn.has("macunix") == 1 and vim.fn.has("win32") ~= 1
+    and type(macos) == "table" and type(macos.normal_opacity) == "function" then
+    vim.g.neovide_normal_opacity = macos.normal_opacity()
+  end
   vim.g.neovide_floating_blur_amount_x = defaults.x
   vim.g.neovide_floating_blur_amount_y = defaults.y
+  refresh_popups()
 end
 function M.status()
   return { enabled = vim.g.neovide_liquid_glass == true,

@@ -9,8 +9,13 @@ local function notify(message)
 end
 
 function M.native_enabled()
-  return vim.g.neovide_native_preview==true and vim.g.neovide_native_pdf_synctex~=false
-    and type(vim.g.neovide_channel_id)=='number' and vim.g.glow_tex_viewer~='skim'
+  local capability=vim.g.neovide_native_pdf_synctex
+  -- Older macOS frontends predate the explicit coordinate capability. Windows
+  -- must advertise it: the original WebView2 PDF viewer only supports reading.
+  local synchronized=capability==true or (capability==nil and vim.fn.has('win32')~=1)
+  return vim.g.neovide_native_preview==true and synchronized
+    and type(vim.g.neovide_channel_id)=='number'
+    and vim.g.glow_tex_viewer~='skim' and vim.g.glow_tex_viewer~='sumatra'
 end
 
 local function path(value)
@@ -70,7 +75,24 @@ local function query(mode,pdf,args,options,callback)
         jobs[key]=nil
         if options.valid and not options.valid() then return end
         local parsed=result.code==0 and M.parse(result.stdout,mode)
-        if not parsed then notify('SyncTeX '..mode..T(" mapping not found: ")..vim.trim(result.stderr or result.stdout or ''):sub(1,240)); return end
+        if not parsed then
+          if vim.fn.has('win32')~=1 then
+            notify('SyncTeX '..mode..T(" mapping not found: ")..vim.trim(result.stderr or result.stdout or ''):sub(1,240))
+            return
+          end
+          -- SyncTeX writes "No tag for" to stdout even with exit code 0.
+          -- An empty stderr must not hide that diagnostic (Lua strings are truthy).
+          local stdout,stderr=vim.trim(result.stdout or ''),vim.trim(result.stderr or '')
+          local details={}
+          if stdout~='' then details[#details+1]=stdout:sub(1,240) end
+          if stderr~='' then details[#details+1]=stderr:sub(1,240) end
+          local message='SyncTeX '..mode..T(" mapping not found: ")
+          if mode=='view' and stdout:find('No tag for ',1,true) then
+            message=T("The source path recorded in the SyncTeX file does not match the current file. Force a full recompilation on this computer.")..'\n'
+          end
+          notify(message..table.concat(details,'\n'))
+          return
+        end
         callback(parsed)
       end)
     end)
@@ -109,8 +131,29 @@ function M.inverse(pdf,point,opts)
   return query('edit',pdf,{'-o',('%d:%.8f:%.8f:%s'):format(point.page,point.x,point.y,pdf)},
     {valid=function() return (not opts.valid or opts.valid()) and (not opts.tab or vim.api.nvim_get_current_tabpage()==opts.tab) end},
     function(result)
-      local file=result.file:match('^/') and result.file or vim.fs.joinpath(vim.fs.dirname(pdf),result.file)
-      file=path(file)
+      -- SyncTeX returns drive/UNC paths on Windows. XeTeX may encode its
+      -- filename records in the system ANSI codepage even when Neovim itself
+      -- has a UTF-8 process manifest. Prefer the original path, and only use a
+      -- legacy decoding when it identifies an actual readable source file.
+      local function resolve(value)
+        local absolute=value:match('^[/\\]') or value:match('^%a:[/\\]')
+        return path(absolute and value or vim.fs.joinpath(vim.fs.dirname(pdf),value))
+      end
+      local file=resolve(result.file)
+      if vim.fn.filereadable(file)~=1 and vim.fn.has('win32')==1 then
+        local converted,decoded=pcall(function()
+          local ffi=require('ffi')
+          ffi.cdef('int GetLocaleInfoW(unsigned long, unsigned long, unsigned short *, int);')
+          local codepage=ffi.new('unsigned long[1]')
+          -- LOCALE_SYSTEM_DEFAULT, LOCALE_RETURN_NUMBER | LOCALE_IDEFAULTANSICODEPAGE.
+          if ffi.C.GetLocaleInfoW(0x800,0x20001004,ffi.cast('unsigned short *',codepage),2)==0 then return end
+          return vim.fn.iconv(result.file,'cp'..tonumber(codepage[0]),'utf-8')
+        end)
+        if converted and decoded and decoded~='' then
+          local candidate=resolve(decoded)
+          if vim.fn.filereadable(candidate)==1 then file=candidate end
+        end
+      end
       if vim.fn.filereadable(file)~=1 then notify(T("The source file returned by SyncTeX cannot be read: ")..file); return end
       local win=opts.win
       if not win or not vim.api.nvim_win_is_valid(win) or (opts.tab and vim.api.nvim_win_get_tabpage(win)~=opts.tab) then
@@ -141,9 +184,13 @@ function M.setup()
       local decoded=file:gsub('\\(.)','%1')
       if vim.fn.filereadable(decoded)==1 then file=decoded end
     end
-    M.forward(file)
+    if vim.fn.has('win32')==1 and not M.native_enabled() then
+      require('config.latex.sumatra').view(file and path(file) or output_file(),true)
+    else
+      M.forward(file)
+    end
   end,
-    {nargs='?',complete='file',desc=T("Locate TeX Cursor in Native PDF with SyncTeX")})
+    {nargs='?',complete='file',desc=T("Locate TeX Cursor in PDF with SyncTeX")})
   vim.api.nvim_create_autocmd('VimLeavePre',{group=vim.api.nvim_create_augroup('GlowSyncTeX',{clear=true}),callback=function()
     generation=generation+1
     for _,job in pairs(jobs) do pcall(job.kill,job,9) end

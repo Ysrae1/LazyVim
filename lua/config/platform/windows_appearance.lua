@@ -29,16 +29,28 @@ local function theme_value(name, fallback, maximum)
   return value
 end
 
+local function material_settings()
+  return require("config.appearance.transparency").config.windows
+end
+
+local function material_theme()
+  return material_settings()[vim.o.background]
+end
+
 -- One Windows material policy for side panels and editor-backed float classes.
 -- Explicit popup mode="custom" remains under popup_materials.lua user control.
 function M.material_blend(fallback)
   if not windows_gui() then return fallback end
-  return math.floor(theme_value("material_blend", vim.o.background == "light" and 15 or fallback, 100))
+  local value = material_settings().material_blend
+  if type(value) ~= "number" or value ~= value or value < 0 or value > 100 then
+    return fallback
+  end
+  return math.floor(value)
 end
 
 function M.popup_blend(value)
   if not windows_gui() then return value end
-  local maximum = theme_value("popup_blend", vim.o.background == "light" and 15 or 100, 100)
+  local maximum = theme_value("popup_blend", material_theme().popup_blend, 100)
   return math.min(value, math.floor(maximum))
 end
 
@@ -70,13 +82,12 @@ function M.setup(opts)
   -- only update values this module owns, preserving subsequent user changes.
   local initialize = opts.initialize == true and not initialized
   -- Optional user profile, e.g.:
-  -- vim.g.glow_windows_appearance = { floating_z_height = 4,
-  --   light = { normal_opacity = 0.98, material_blend = 15, popup_blend = 15 } }
-  -- Use this profile for startup overrides. Direct g:neovide_* changes after
-  -- initialization have priority over subsequent theme/profile refreshes.
+  -- vim.g.glow_windows_appearance = { floating_z_height = 4 }
+  -- Material defaults live together in appearance/transparency.lua. Direct
+  -- g:neovide_* changes after initialization retain their existing priority.
   local settings = profile()
   local values = vim.tbl_extend("force", defaults, {
-    normal_opacity = theme_value("normal_opacity", vim.o.background == "light" and 0.98 or 0.85, 1),
+    normal_opacity = theme_value("normal_opacity", material_theme().normal_opacity, 1),
   })
   for name, fallback in pairs(values) do
     local key = "neovide_" .. name

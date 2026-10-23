@@ -24,6 +24,20 @@ function M.prepare_host()
       vim.g.python3_host_prog = M.python()
     end
   end
+  if vim.fn.has("win32") == 1 and type(vim.g.python3_host_prog) == "string"
+      and vim.fs.normalize(vim.g.python3_host_prog):lower() == vim.fs.normalize(M.python()):lower() then
+    -- Standalone native Windows uses the same private provider as the packaged
+    -- launcher. Molten writes data_dir/runtime even with JUPYTER_RUNTIME_DIR set.
+    -- Keep defaults inside this provider and preserve explicit user overrides.
+    if not vim.env.JUPYTER_DATA_DIR or vim.env.JUPYTER_DATA_DIR == "" then
+      vim.env.JUPYTER_DATA_DIR = M.directory() .. "/share/jupyter"
+      vim.fn.mkdir(vim.env.JUPYTER_DATA_DIR .. "/runtime", "p", 448)
+    end
+    if not vim.env.JUPYTER_RUNTIME_DIR or vim.env.JUPYTER_RUNTIME_DIR == "" then
+      vim.env.JUPYTER_RUNTIME_DIR = M.directory() .. "/share/jupyter/runtime"
+      vim.fn.mkdir(vim.env.JUPYTER_RUNTIME_DIR, "p", 448)
+    end
+  end
 end
 
 function M.ready()

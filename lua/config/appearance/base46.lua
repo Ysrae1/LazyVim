@@ -78,7 +78,13 @@ function M.apply()
             manager.redraw(source)
         end
     end
-    vim.cmd("redrawstatus!")
+    if vim.g.neovide and vim.fn.has("win32") == 1 then
+        -- A theme can settle while Neo-tree owns focus without repainting the
+        -- Windows GUI. Flush the completed palette once, without user input.
+        vim.cmd("redraw!")
+    else
+        vim.cmd("redrawstatus!")
+    end
 end
 
 local function schedule_apply()

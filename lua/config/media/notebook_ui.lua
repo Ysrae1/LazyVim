@@ -71,7 +71,7 @@ local function outputs(buf)
   local count = api.nvim_buf_line_count(buf)
   for _, mark in ipairs(api.nvim_buf_get_extmarks(buf, molten_ns, 0, -1, { details = true })) do
     local lines = mark[4].virt_lines
-    local canonical = require("config.platform.notebook_chrome_locale").canonical_lines(
+    local canonical = require("config.locale.notebook_chrome").canonical_lines(
       buf, molten_ns, mark[1], lines)
     if mark[2] >= 0 and mark[2] < count and not mark[4].invalid and lines and is_output(lines) then
       -- Molten is the sole writer of its output. While running it replaces this
@@ -578,7 +578,7 @@ function M.virtual_output_geometry(win, buf, namespace, identifier)
   return area and copy(area) or nil
 end
 function M.refresh()
-  require("config.platform.notebook_chrome_locale").refresh()
+  require("config.locale.notebook_chrome").refresh()
   pending = false
   if not available() then return {} end
   for win, saved in pairs(windows) do
@@ -634,6 +634,11 @@ function M.refresh()
             clip = local_clip, anchor = { window = win, epoch = model.epoch, scroll = false },
             active = win == api.nvim_get_current_win(), dark = vim.o.background == 'dark',
             color = require('config.media.notebook_edit').output_accent() }
+          local footer = vim.w[win].glow_notebook_output_footer
+          if aligned and vim.g.neovide_native_notebook_footer == true and type(footer) == 'table'
+              and type(footer.col) == 'number' and type(footer.width) == 'number' and footer.width > 0 then
+            frames[#frames].footer_gaps = { { col = footer.col - aligned.col - 0.1, width = footer.width + 0.2 } }
+          end
         end
       end
     end

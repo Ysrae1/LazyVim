@@ -1,7 +1,7 @@
 -- Translate rendered diagnostics, never the diagnostic store or LSP/code-action payloads.
 local M = {}
-local catalog = require("config.platform.diagnostic_messages")
-local state_key = "config.platform.diagnostic_locale_state"
+local catalog = require("config.locale.diagnostic_messages")
+local state_key = "config.locale.diagnostics_state"
 local state = package.loaded[state_key] or { originals = {}, floats = {}, lists = {} }
 package.loaded[state_key] = state
 state.impl = M
@@ -267,7 +267,7 @@ local function register_list(id, win, captured)
   for i, item in ipairs(items) do by_index[i] = captured[list_key(item)] end
   local key = (win and ("loc:" .. win .. ":") or "qf:") .. id
   state.lists[key] = { id = id, win = win, records = by_index, originals = vim.deepcopy(items) }
-  local what = { id = id, quickfixtextfunc = "v:lua.require'config.platform.diagnostic_locale'.quickfix_text" }
+  local what = { id = id, quickfixtextfunc = "v:lua.require'config.locale.diagnostics'.quickfix_text" }
   -- List items retain their original message, positions, IDs and user_data.
   if win then vim.fn.setloclist(win, {}, "a", what) else vim.fn.setqflist({}, "a", what) end
 end
@@ -399,7 +399,7 @@ function M.refresh()
     end
   end
   for _, entry in pairs(state.lists) do
-    local what = { id = entry.id, quickfixtextfunc = "v:lua.require'config.platform.diagnostic_locale'.quickfix_text" }
+    local what = { id = entry.id, quickfixtextfunc = "v:lua.require'config.locale.diagnostics'.quickfix_text" }
     if entry.win then
       if vim.api.nvim_win_is_valid(entry.win) then pcall(vim.fn.setloclist, entry.win, {}, "a", what) end
     else pcall(vim.fn.setqflist, {}, "a", what) end

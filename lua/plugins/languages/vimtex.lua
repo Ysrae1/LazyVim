@@ -21,16 +21,15 @@ return {
         "-file-line-error",
       },
     }
+    if vim.fn.has("win32") == 1 then require("config.latex.build_cache").setup() end
 
     ------------------------------------------------------------------------------
     -- (2) PDF 查看器：使用 Skim + SyncTeX
     ------------------------------------------------------------------------------
     if vim.fn.has("win32") == 1 then
-      -- These are VimTeX's native Windows defaults; Sumatra adds forward search.
-      vim.g.vimtex_view_method = "general"
-      local sumatra = vim.fn.exepath("SumatraPDF")
-      vim.g.vimtex_view_general_viewer = sumatra ~= "" and "SumatraPDF" or 'start ""'
-      vim.g.vimtex_view_general_options = sumatra ~= "" and "-reuse-instance -forward-search @tex @line @pdf" or "@pdf"
+      -- Native coordinate support is preferred when available; current Windows
+      -- WebView2 previews use SumatraPDF for complete forward/reverse SyncTeX.
+      vim.g.vimtex_view_method = "sumatra_async"
     else
       -- 异步 Skim 后端：系统弹窗或查看器无响应时，不阻塞编辑器。
       vim.g.vimtex_view_method = "skim_async"

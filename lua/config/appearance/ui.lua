@@ -160,6 +160,7 @@ function M.apply()
   apply_devicons(base46)
   apply_window_picker(colors)
   apply_neo_tree_status(colors)
+  require("config.appearance.tree_message").apply()
   refresh_todo_comments()
   require("config.appearance.yank").apply()
 

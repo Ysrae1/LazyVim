@@ -70,7 +70,7 @@ class _Api(_Proxy):
                 # user code/error/serialized data are never translated.
                 return self._nvim.exec_lua("""
                   local buf,ns,row,col,opts,images,key,presentation=...
-                  return require('config.platform.notebook_chrome_locale').write(
+                  return require('config.locale.notebook_chrome').write(
                     buf,ns,row,col,opts,images,key,presentation)
                 """, self._buffer, namespace, row, col, options, images, str(id(self._output)), self._presentation)
         return self._target.set_extmark(namespace, row, col, options, **kwargs)

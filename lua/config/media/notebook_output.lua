@@ -99,11 +99,21 @@ local function position(win, style)
   if bottom - top < 2 or width < 3 then
     return false, T("There is not enough space below this window. Scroll the document down or enlarge the window.")
   end
+  -- A real border footer stays fixed while the provider's output scrolls.
+  -- Leave one text row in tiny viewports; the normal q/Esc maps still work.
+  local footer = { { "", "GlowNotebookExpandCap" }, { "󰕎 ", "GlowNotebookExpand" },
+    { " q / Esc", "GlowNotebookExpandValue" }, { "", "GlowNotebookExpandValueCap" } }
+  local footer_width = 0
+  for _, chunk in ipairs(footer) do footer_width = footer_width + vim.fn.strdisplaywidth(chunk[1]) end
+  local show_footer = bottom - top >= 3 and footer_width + 4 <= width - 1
+  if show_footer then footer[#footer + 1] = { "  ", "Normal" } end
   local config = {
-    relative = "editor", row = top, col = left, width = width - 1, height = bottom - top - 1,
+    relative = "editor", row = top, col = left, width = width - 1,
+    height = bottom - top - 1 - (show_footer and 1 or 0),
     -- Invisible top/left padding places the first output line in its original
     -- inline row/column, while the native green outline retains fractional edges.
-    border = { " ", " ", "", "", "", "", "", " " },
+    border = { " ", " ", "", "", "", show_footer and " " or "", show_footer and " " or "", " " },
+    footer = show_footer and footer or "", footer_pos = "right",
   }
   local previous = api.nvim_win_get_config(win)
   local function border_char(index)
@@ -112,15 +122,18 @@ local function position(win, style)
   end
   local padding = border_char(1) == " " and border_char(2) == " " and border_char(8) == " "
     and border_char(3) == "" and border_char(4) == "" and border_char(5) == ""
-    and border_char(6) == "" and border_char(7) == ""
+    and border_char(6) == (show_footer and " " or "") and border_char(7) == (show_footer and " " or "")
   if previous.relative ~= config.relative or previous.row ~= config.row or previous.col ~= config.col
-    or previous.width ~= config.width or previous.height ~= config.height or not padding then
+    or previous.width ~= config.width or previous.height ~= config.height or not padding
+    or (type(previous.footer) == "table") ~= show_footer then
     api.nvim_win_set_config(win, config)
   end
   vim.w[win].glow_notebook_output_frame = {
     row = rect.row - top, col = rect.col - left, width = rect.width,
-    height = bottom - rect.row - 0.12,
+    height = bottom - rect.row - (show_footer and vim.g.neovide_native_notebook_footer == true and 0.5 or 0.12),
   }
+  vim.w[win].glow_notebook_output_footer = show_footer
+    and { col = width - footer_width - 2, width = footer_width } or nil
   return true
 end
 

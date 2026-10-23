@@ -54,7 +54,7 @@ local ui = {
   line = "#E1E1E1", -- 分隔线、默认缩进点
   statusline_bg = "#F0F0F0", -- 底栏背景
   lightbg = "#E6E6E6", -- 辅助背景
-  folder_bg = "#7A8087", -- 旧文件树集成的文件夹色
+  folder_bg = "#C1C4C7", -- 旧文件树集成的文件夹色
   visual_selection = "#CCE0FF",
 }
 
@@ -71,7 +71,7 @@ return {
     ["neo-tree"] = {
       NeoTreeCursorLine = {
         bg = ui.folder_bg, -- 文件树选中行背景。
-        blend = vim.g.neovide and 60 or nil, -- 独立背景透明度：0=不混合，100=全透明；仅 Neovide，删掉此项则跟随 material_blend。
+        blend = vim.g.neovide and 30 or nil, -- 独立背景透明度：0=不混合，100=全透明；仅 Neovide，删掉此项则跟随 material_blend。
       },
     },
     blankline = {

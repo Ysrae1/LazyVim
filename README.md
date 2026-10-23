@@ -1,18 +1,18 @@
 # Neovim 配置 · Neovide Glow 固定版
 
-这套个人配置以 [LazyVim](https://github.com/LazyVim/LazyVim) 为基础，结合 NvChad／Base46 的主题与界面，保留原有 Neo-tree 侧栏、标签栏、终端、Yazi、macOS 快捷键和 Avante AI 侧栏。当前配套环境冻结为 **`glow-stack-20261020-gm1`**，其中的字母雨版本为 **`cmatrix-gm-20261017`**。
+这套个人配置以 [LazyVim](https://github.com/LazyVim/LazyVim) 为基础，结合 NvChad／Base46 的主题与界面，保留原有 Neo-tree 侧栏、标签栏、终端、Yazi、macOS 快捷键和 Avante AI 侧栏。上一公开总安装环境冻结为 **`glow-stack-20261020-gm1`**，其中的字母雨版本为 **`cmatrix-gm-20261017`**。
 
 ## 配色冻结与回滚
 
-当前配色与编辑配置冻结为 **[`glow-stack-20261020-gm1`](https://github.com/Ysrae1/LazyVim/tree/glow-stack-20261020-gm1)**，Neovide 仓库中的[便携配置副本](https://github.com/Ysrae1/neovide/tree/glow-stack-20261020-gm1/portable/payload/nvim)使用同名标签。旧 `ayu-colors-20261018-v1`、2026-10-19 gm1、gm2 标签与下载均保留。
+当前配色与编辑配置的发布候选为 **`glow-stack-20261023-gm1`**，Neovide 仓库中的便携配置副本使用同名标签；下载入口仍指向已公开的固定发行版，候选包以新发行页的实际资产为准。旧 `ayu-colors-20261018-v1`、2026-10-19 gm1、gm2 标签与下载均保留。
 
-自定义主题文件为 `lua/config/appearance/themes/ayu_light_customed.lua` 与 `ayu_dark_customed.lua`。两者使用相同字段结构；Base46 的主题标识仍为 `ayu_light`／`ayu_dark`。插件映射、自动浅深切换、Neo-tree 状态色及选区加粗一起保存。
+各平台的主题文件统一位于各自配置中的 `lua/config/appearance/themes/ayu_light_customed.lua` 与 `ayu_dark_customed.lua`。Mac 与 Windows 的整个 `~/.config/nvim` 分开维护，路径约定相同，参数和配色各自独立；公共功能只逐文件核对同步，不用 Mac 整份配置覆盖 Windows。两份主题使用相同字段结构；Base46 的主题标识仍为 `ayu_light`／`ayu_dark`。插件映射、自动浅深切换、Neo-tree 状态色及选区加粗一起保存。
 
 在 LazyVim 配置仓库中，先提交或备份后续修改，再恢复这版配色：
 
 ```sh
 git fetch origin --tags
-git restore --source glow-stack-20261020-gm1 -- lua/config/appearance lua/chadrc.lua
+git restore --source glow-stack-20261023-gm1 -- lua/config/appearance lua/chadrc.lua
 ```
 
 完整版本可通过该标签单独检出；对应插件仍由 `lazy-lock.json` 和 `stable_plugins.lua` 固定。多光标入口及添加编辑点均为 `空格 m`，`Ctrl+p` 撤销新选点；Extend 中可直接使用 `gU`／`gu` 转换选区大小写。
@@ -38,16 +38,21 @@ git restore --source glow-stack-20261020-gm1 -- lua/config/appearance lua/chadrc
 
 日常调整从 `lua/config/` 查找；`lua/chadrc.lua` 负责连接主题与 NvChad 界面。文件名统一用下划线，插件按用途分组。
 
+`init.lua` 只调用 `config.bootstrap.setup()`；启动先后顺序集中在 `config/bootstrap.lua`，媒体注册集中在 `config/media/init.lua`。内部语言实现归入 `config/locale/`，公共入口仍为 `config.platform.locale`。日常配色、材质、字体、快捷键及公开 `reload()` 路径保持原位。
+
 ```text
 lua/
 ├── chadrc.lua
 ├── config/
+│   ├── bootstrap.lua                                    # 应用启动顺序
 │   ├── options.lua · keymaps.lua · autocmds.lua · lazy.lua  # LazyVim 约定入口
 │   ├── appearance/
 │   │   ├── themes/{ayu_light_customed,ayu_dark_customed}.lua                 # Light / Dark 完整调色板
 │   │   └── editor_highlights.lua · ui.lua · completion.lua · fff.lua · yank.lua
 │   │       base46.lua · startup.lua · terminal.lua · intro.lua
-│   ├── platform/{neovide,macos_keymaps,locale}.lua    # GUI、Command 键、界面语言
+│   ├── platform/{neovide,macos_keymaps,locale}.lua    # 平台适配与稳定语言入口
+│   ├── locale/                                           # 语言词典、诊断与各插件的内部适配
+│   ├── media/init.lua                                    # 媒体注册；实现和参数留在媒体模块
 │   ├── navigation/{project_root,neo_tree}.lua              # 项目根目录、侧栏渐隐
 │   ├── latex/skim.lua                                     # PDF 双向跳转
 │   ├── editor/{settings,toggles}.lua                      # 编辑选项与开关
@@ -62,10 +67,14 @@ archive/
 ```
 
 - 改语法颜色：`config/appearance/themes/`；改插件颜色映射：`config/appearance/ui.lua`、`completion.lua`、`fff.lua`；复制反馈：`yank.lua`。
+- Neo-tree 的“（1个隐藏项目）”等提示字色：`config/appearance/tree_message.lua` 的 `config.light`／`config.dark`，支持 `#RRGGBB` 或主题色槽，`false` 保留原色；同组的空目录等提示一起生效。Mac／Windows 都修改各自配置中的同名文件，配色独立。保存后执行 `:lua require('config.appearance.tree_message').reload()`；只改字色，保留背景、斜体与透明度。
 - 改光标行、同名引用、Visual 与多光标选区：`config/appearance/editor_highlights.lua`，颜色、透明度、样式和行为均有中文注释。`references.outline` 控制新版 Neovide 的细框，`references.style.sp` 设置框色；旧前端保留底色。它会在主题和透明处理后重新应用。
 - 改光标本体颜色：两份主题的 `polish_hl.defaults.Cursor`；`bg` 为光标色，`fg` 为覆盖字符色。Neovide 已显式绑定此组，保留各模式形状和终端的 `TermCursor`。
-- 浮窗材质与透明度逐类设置在 `config/appearance/popup_materials.lua`：`opaque` 使用原实心底色，`editor` 跟随主编辑区，`custom` 独立设置 `blend=0..100` 和可选背景色。Notebook 输出默认跟随编辑区，其他类别保持实心；保存后执行 `:lua require('config.appearance.popup_materials').reload()`。通用策略仍在 `popups.lua`，不加 backdrop，也不改变主编辑区、侧栏、Dashboard 内嵌终端和底栏材质。
-- Notebook 输出：点击内联输出可选中对应单元格，`空格 j o` 从原位置向下展开；`h/l` 左右滚动，`j/k` 或滚轮上下滚动，`v/V` 选中后 `y` 复制，`空格 y` 复制到系统剪贴板。`q/Esc`、点击框外或在框外滚动可收起。仅实际折叠／裁切时显示底边快捷键胶囊；底边嵌入需支持该能力的新 Neovide，旧前端安全回退。
+- 浮窗材质与透明度逐类设置在 `config/appearance/popup_materials.lua`：`opaque` 使用原实心底色，`editor` 跟随主编辑区，`custom` 独立设置 `blend=0..100` 和可选背景色。Avante 整个侧栏由 `avante` 项统一管理，正文、边框、间隙及胶囊外侧随编辑区，语义实心按钮保留；Notebook 输出及其他类别按各项配置生效。保存后执行 `:lua require('config.appearance.popup_materials').reload()`；公共逻辑在 `popups.lua`，普通编辑区、Neo-tree及底栏仍由原入口管理。
+- Mac 编辑区背景不透明度在 `config/platform/macos_appearance.lua`：分别设置 `light.normal_opacity`／`dark.normal_opacity`（0透明、1实心），保存后执行 `:lua require('config.platform.macos_appearance').reload()`。`:GlowGlass opacity 0.85` 临时调整并即时更新 Avante；`:GlowGlass reset` 恢复当前主题默认。Windows 独立参数不受此入口影响。
+- Snacks／Telescope 的输入、结果、预览标题使用前端显式 `centered_caption` 角色，按可见文字墨迹校正水平居中；旧前端保留网格布局，字体／背景／配色不变。
+- Java 语法高亮沿用现有 Ayu 映射，需固定 Java Treesitter parser；当前维护清单共57项。Mac／Windows ARM64／x64已补齐验证；语法高亮与JDK／jdtls运行或语言服务相互独立。
+- Notebook 输出：点击内联输出可选中对应单元格，`空格 j o` 从原位置向下展开；`h/l` 左右滚动，`j/k` 或滚轮上下滚动，`v/V` 选中后 `y` 复制，`空格 y` 复制到系统剪贴板。`q/Esc`、点击框外或在框外滚动可收起。内联输出仅在实际折叠／裁切时显示展开快捷键胶囊；展开框右下角固定显示 `󰕎 q / Esc` 收起提示，横纵滚动时不随正文移动。Mac／Windows 使用同一布局与主题胶囊；Mac 的展开输出框不投影，其他浮窗阴影保留；底边嵌入需支持该能力的新 Neovide，旧前端安全回退。
 - 弹窗文字集中在 `config/appearance/popup_text.lua`：正文、路径前缀、说明、计数、右上角消息正文／嵌入弱色／标题各自设置 Light/Dark，`overrides` 可按组单独改色。覆盖 Snacks 选择器、Lazy、Mason、FFF、WhichKey、Telescope 和 Noice；消息内的弱色只改通知窗口，不影响全局代码注释。保存后执行 `:lua require('config.appearance.popup_text').reload()`。
 - 改字体、缩放和 Glow：`config/platform/neovide.lua`；改 Mac 快捷键：`macos_keymaps.lua`。
 - 改具体插件：到 `plugins/` 的对应分类查找，例如 `navigation/neo_tree.lua`、`languages/vimtex.lua`、`ai/avante.lua`。增加配置后在 `plugins/init.lua` 明确登记，保留原有导入顺序。
@@ -74,12 +83,16 @@ archive/
 
 修改 `editor_highlights.lua` 后，执行 `:lua require('config.appearance.editor_highlights').reload()` 可立即重载颜色、加粗/下划线和行背景透明度；光标行开关/范围、同名项延迟/模式、Visual 边界规则等行为设置在下次打开 Neovim 时完整生效。同名项由 Snacks.words 调用语言服务提供语义引用，语言服务不支持时不显示；Visual 选区与搜索高亮彼此独立。
 
-Light / Dark 文件保存后，在 Neovim 依次执行以下两行即可重新读取并应用当前主题：
+各平台的 Light / Dark 文件保存后，在 Neovim 依次执行以下两行即可重新读取并应用当前主题（主题文件顶部的单主题重载命令也适用）：
 
 ```vim
 :lua for _, name in ipairs({"ayu_light", "ayu_dark"}) do local mod = "config.appearance.themes." .. name .. "_customed"; package.loaded[mod] = nil; require("nvconfig").base46.changed_themes[name] = require(mod) end
 :lua require("base46").load_all_highlights()
 ```
+
+Windows 日常编辑自己的 `~/.config/nvim/lua/config/appearance/themes/`，包含完整配色及高亮参数；x64／ARM64 入口共用这份 Windows 配置。加载器使用当前 `stdpath("config")` 对应的标准主题模块；已有 home 配置桥接会将它指向该用户目录，尚未迁移的独立安装则使用自己的 profile 配置。不再优先读取旧 `%LOCALAPPDATA%\NeovideGlow\appearance\themes\`，旧文件仅保留备份。同步／升级应保留 Windows 已有文件，只有新安装缺少配置时提供默认，不把 Windows 配色复制回 Mac。
+
+Windows 两份文件保存后执行 `:lua require('config.platform.windows_themes').reload()`，重新应用当前主题。该入口在 Mac / Linux 不执行操作。嵌入式 Yazi 的后备配色也读取同一平台入口。
 
 个人状态不写回配置目录：语言偏好保存在 `stdpath("state")/preferences/language.txt`，缩放设置继续保存在 `stdpath("state")/neovide/`。
 

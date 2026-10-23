@@ -1,9 +1,10 @@
 local M = {}
 
-function M.render(width, system)
+function M.render(width, system, source)
   if width <= 0 then return "" end
-  local icon = ({ Darwin = "", Linux = "", Windows_NT = "" })[system]
-  local title = " " .. (icon and icon .. " " or "") .. require("config.platform.locale").t("File Explorer")
+  local icon = ({ Darwin = "", Linux = "", Windows_NT = "󰍲" })[system]
+  local label = source == "buffers" and "Buffer Explorer" or "File Explorer"
+  local title = " " .. (icon and icon .. " " or "") .. require("config.platform.locale").t(label)
   local text = ""
   -- Clip by screen cells, preserving the left anchor and complete UTF-8 glyphs.
   for index = 0, vim.fn.strchars(title) - 1 do
@@ -21,7 +22,8 @@ end
 function M.get()
   for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
     if vim.bo[vim.api.nvim_win_get_buf(win)].filetype == "neo-tree" then
-      return M.render(vim.api.nvim_win_get_width(win), vim.uv.os_uname().sysname)
+      local source = vim.b[vim.api.nvim_win_get_buf(win)].neo_tree_source
+      return M.render(vim.api.nvim_win_get_width(win), vim.uv.os_uname().sysname, source)
     end
   end
   return ""

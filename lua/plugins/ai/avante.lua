@@ -9,6 +9,15 @@ if windows then
   end
   codex_env.HOME = codex_env.HOME or vim.env.USERPROFILE
 end
+local windows_node = windows and vim.fn.exepath("node") or nil
+if windows and windows_node == "" then
+  local private_node = vim.fn.stdpath("data") .. "/mason/.glow-runtime/runtime/node/node.exe"
+  if vim.fn.filereadable(private_node) == 1 then
+    windows_node = private_node
+    -- Only this ACP child receives the verified private Node directory.
+    codex_env.PATH = vim.fn.fnamemodify(private_node, ":h") .. ";" .. (codex_env.PATH or "")
+  end
+end
 local adapter = vim.fn.stdpath("data") .. "/codex-acp/node_modules/@agentclientprotocol/codex-acp/dist/index.js"
 
 return {
@@ -23,7 +32,7 @@ return {
         codex = {
           -- Use the maintained adapter with the existing ChatGPT login.
           -- Remove API keys only for this process; DeepSeek stays configured below.
-          command = windows and (vim.fn.exepath("node") ~= "" and vim.fn.exepath("node") or "node") or "/usr/bin/env",
+          command = windows and (windows_node ~= "" and windows_node or "node") or "/usr/bin/env",
           args = windows and { adapter } or {
             "-u", "OPENAI_API_KEY",
             "-u", "CODEX_API_KEY",
@@ -72,8 +81,20 @@ return {
         vim.g.avante_login = true
       end
     end,
-    -- if you want to build from source then do `make BUILD_FROM_SOURCE=true`
-    build = windows and "powershell -NoProfile -ExecutionPolicy Bypass -File Build.ps1 -BuildFromSource false" or "make",
+    -- The PowerShell host can have a different architecture from Neovim.
+    -- Build the locked source explicitly for this Neovim's LuaJIT ABI.
+    build = windows and function(plugin)
+      local architecture = ({ arm64 = "arm64", x64 = "x64" })[jit.arch]
+      assert(architecture, "Avante: unsupported Windows Neovim architecture: " .. jit.arch)
+      local helper = vim.fn.stdpath("config") .. "/lua/config/platform/avante_build.ps1"
+      assert(vim.fn.filereadable(helper) == 1, "Avante native build helper is missing: " .. helper)
+      local process = vim.system({
+        "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", helper,
+        "-Source", plugin.dir, "-Architecture", architecture,
+        "-BuildDirectory", vim.fn.stdpath("cache") .. "/native-plugins/avante/" .. architecture,
+      }, { text = true }):wait(2760000)
+      if process.code ~= 0 then error("Avante native build failed: " .. (process.stderr or process.stdout or "unknown error")) end
+    end or "make",
     dependencies = {
       "nvim-treesitter/nvim-treesitter",
       "stevearc/dressing.nvim",

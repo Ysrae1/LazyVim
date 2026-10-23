@@ -4,7 +4,7 @@ local M = {}
 function M.new(current, opts)
   opts = opts or {}
   local phrases, folded, out = {}, {}, {}
-  for _, name in ipairs({ "config.platform.locale_messages", "config.platform.locale_ui_messages" }) do
+  for _, name in ipairs({ "config.locale.messages", "config.locale.ui_messages" }) do
     if opts.reload then package.loaded[name] = nil end
     local ok, entries = pcall(require, name)
     if ok then
@@ -19,7 +19,7 @@ function M.new(current, opts)
           phrases[row.zh] = phrases[row.zh] or row
         end
       end
-    elseif name == "config.platform.locale_messages" then
+    elseif name == "config.locale.messages" then
       error(entries)
     end
   end

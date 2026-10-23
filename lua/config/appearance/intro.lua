@@ -84,6 +84,7 @@ local function open_cover()
   vim.w[win].glow_popup_profile = "matrix_intro"
   api.nvim_win_set_hl_ns(win, namespace)
   vim.wo[win].winblend = 0
+  require("config.appearance.float_shadows").refresh()
 end
 
 local function start_intro()

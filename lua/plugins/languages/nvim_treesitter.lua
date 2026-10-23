@@ -34,6 +34,7 @@ return {
           "hjson",
           "html",
           "ini",
+          "java",
           "javascript",
           "json",
           "json5",

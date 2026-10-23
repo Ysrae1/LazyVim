@@ -233,7 +233,12 @@ local function overlay(source, target)
     return { background = vim.o.background, ui = base46.get_theme_tb("base_30"), syntax = base46.get_theme_tb("base_16") }
   end)
   if not ok_colors then
-    local fallback = require("config.appearance.themes.ayu_" .. vim.o.background .. "_customed")
+    local fallback
+    if vim.fn.has("win32") == 1 then
+      fallback = require("config.platform.windows_themes").load("ayu_" .. vim.o.background .. "_customed")
+    else
+      fallback = require("config.appearance.themes.ayu_" .. vim.o.background .. "_customed")
+    end
     palette = { background = vim.o.background, ui = fallback.base_30, syntax = fallback.base_16 }
   end
   local palette_file = target .. "/glow-editor-palette.json"

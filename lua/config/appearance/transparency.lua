@@ -1,7 +1,17 @@
 -- Background-only transparency. Neovide keeps foreground text fully opaque.
 local M = {}
 local configured, queued, pending_full = false, false, false
-local material_blend = 80 -- Windows light takes its denser platform policy at apply time.
+-- 保存后重载：:lua package.loaded['config.appearance.transparency']=nil; require('config.appearance.transparency').setup()
+M.config = {
+  material_blend = 80, -- Mac / Linux 原有面板材质；不受 Windows 参数影响。
+  windows = {
+    material_blend = 40, -- Windows 深浅主题统一；0=实心，100=背景全透明。
+    -- 编辑区与 editor 模式浮窗保留原参数，集中在这里调整。
+    dark = { normal_opacity = 0.85, popup_blend = 100 },
+    light = { normal_opacity = 0.98, popup_blend = 15 },
+  },
+}
+local material_blend = M.config.material_blend
 -- Base surfaces precede aliases, so links which already inherit the requested
 -- blend stay links. Syntax, selections and solid capsule bodies stay opaque.
 local popup_surfaces = {
@@ -83,12 +93,6 @@ local popup_sources = {
 local surfaces = {
   "SnacksNormal", "SnacksNormalNC",
   "NeoTreeWinSeparator",
-  "AvanteSidebarNormal",
-  "AvanteSidebarWinSeparator",
-  "AvanteSidebarWinHorizontalSeparator",
-  "AvantePromptInput",
-  "AvantePromptInputBorder",
-  "AvantePopupHint",
 }
 local notifier_surfaces = { SnacksNotifierMinimal = "NormalFloat", SnacksNotifierHistory = "Normal" }
 for _, level in ipairs({ "Trace", "Debug", "Info", "Warn", "Error" }) do
@@ -213,33 +217,9 @@ local function split_separators()
       end
     end
   end
-  if vim.g.neovide_liquid_glass == true then
-    local panel = vim.api.nvim_get_hl(0, { name = "AvanteSidebarNormal", link = false, create = false })
-    if panel.bg then
-      -- All blank cells around Avante's stacked panels share its own material.
-      -- Reversed title groups paint only the outer cap cell's background; their
-      -- accent foreground still belongs to the solid capsule.
-      for _, name in ipairs({
-        "AvanteSidebarWinSeparator",
-        "AvanteSidebarWinHorizontalSeparator",
-        "AvanteReversedTitle",
-        "AvanteReversedSubtitle",
-        "AvanteReversedThirdTitle",
-      }) do
-        if vim.fn.hlexists(name) == 1 then
-          local attrs = vim.api.nvim_get_hl(0, { name = name, link = false })
-          attrs.bg, attrs.blend = panel.bg, panel.blend or material_blend
-          if name:find("Separator", 1, true) then
-            attrs.fg = panel.bg
-          end
-          if not vim.deep_equal(attrs, vim.api.nvim_get_hl(0, { name = name, link = false })) then
-            vim.api.nvim_set_hl(0, name, attrs)
-          end
-          resolved_links[name] = nil
-        end
-      end
-    end
-  end
+  -- Avante's material is owned only by popup_materials.lua on every platform.
+  -- This path retains just the adjacent editor's blank separator ownership.
+  local avante_material = true
   if M.original_fillchars == nil then
     M.original_fillchars = vim.api.nvim_get_option_value("fillchars", { scope = "global" })
   end
@@ -260,7 +240,7 @@ local function split_separators()
     if vim.api.nvim_win_get_config(win).relative == "" then
       local buf = vim.api.nvim_win_get_buf(win)
       if
-        vim.g.neovide_liquid_glass == true
+        avante_material
         and vim.bo[buf].buftype == ""
         and not vim.bo[buf].filetype:match("^Avante")
       then
@@ -421,7 +401,7 @@ function M.apply()
   end
   local windows = require("config.platform.windows_appearance")
   windows.setup()
-  material_blend = windows.material_blend(80)
+  material_blend = windows.material_blend(M.config.material_blend)
   for _, name in ipairs(surfaces) do
     apply(name, material_blend)
   end

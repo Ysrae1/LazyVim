@@ -14,13 +14,13 @@ function M.current()
   return language(vim.g.glow_ui_language) or language(vim.env.LANG) or "en"
 end
 function M.reload_messages()
-  local catalog = require("config.platform.locale_catalog").new(M.current, { reload = true })
+  local catalog = require("config.locale.catalog").new(M.current, { reload = true })
   M.t, M.known = catalog.t, catalog.known
 end
 M.reload_messages()
 local function which_key_text(text) return M.t(text) end
 function M.setup_which_key(opts)
-  require("config.platform.which_key_locale").setup()
+  require("config.locale.which_key").setup()
   opts.replace = opts.replace or {}
   opts.replace.desc = opts.replace.desc or {}
   if not vim.tbl_contains(opts.replace.desc, which_key_text) then
@@ -50,7 +50,7 @@ local function refresh()
   end
   local dashboard = package.loaded["snacks.dashboard"]
   if dashboard and dashboard.update then dashboard.update() end
-  require("config.platform.locale_ui").refresh(M)
+  require("config.locale.ui").refresh(M)
   vim.api.nvim_exec_autocmds("User", { pattern = "GlowLanguageChanged", modeline = false, data = { language = M.current() } })
   vim.cmd("redraw")
 end
@@ -118,11 +118,11 @@ function M.setup()
   end
   vim.keymap.set("n", lhs, M.toggle_lang, { noremap = true, silent = true, desc = "Toggle Language" })
   language_key = lhs
-  require("config.platform.locale_ui").setup(M)
-  require("config.platform.diagnostic_locale").setup()
-  require("config.platform.notebook_chrome_locale").setup()
-  require("config.platform.vimtex_locale").setup()
-  require("config.platform.native_menu_locale").setup(M)
+  require("config.locale.ui").setup(M)
+  require("config.locale.diagnostics").setup()
+  require("config.locale.notebook_chrome").setup()
+  require("config.locale.vimtex").setup()
+  require("config.locale.native_menu").setup(M)
 end
 M.setup()
 return M
